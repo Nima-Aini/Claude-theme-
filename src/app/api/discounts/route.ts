@@ -25,6 +25,8 @@ async function ensureDiscountSchema() {
       ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
       ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT false;
       ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+      UPDATE discount_codes SET is_public = false WHERE is_public IS NULL;
+      UPDATE discount_codes SET is_active = true WHERE is_active IS NULL;
       UPDATE discount_codes SET value = percentage, type = 'percentage' WHERE value = 0 AND percentage > 0;
     `);
   } finally {
@@ -41,13 +43,21 @@ async function isAdmin(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   await ensureDiscountSchema();
-  const admin = await isAdmin(req);
-  if (admin) {
+  const url = new URL(req.url);
+  const isAdminParam = url.searchParams.get("admin") === "1" || url.searchParams.get("all") === "1";
+
+  // When requested specifically from admin panel with ?admin=1
+  if (isAdminParam) {
+    const admin = await isAdmin(req);
+    if (!admin) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const all = await db.select().from(discountCodes).orderBy(desc(discountCodes.createdAt));
     return NextResponse.json(all);
   }
 
-  // Public endpoint: customers only see discounts explicitly marked public and active.
+  // Public storefront endpoint: ALWAYS returns ONLY discounts that are explicitly public and active.
+  // Never expose hidden or inactive discounts to the storefront, even if an admin cookie is present.
   const publicDiscounts = await db
     .select({
       id: discountCodes.id,
