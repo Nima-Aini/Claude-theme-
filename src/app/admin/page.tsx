@@ -75,7 +75,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     (async () => {
       try {
-        const session = await fetch("/api/auth/admin/session", { cache: "no-store" });
+        const session = await fetch("/api/auth/admin/session", { cache: "no-store", credentials: "include" });
         if (!session.ok) {
           window.location.href = "/nimaaminarsham/login";
           return;
@@ -90,7 +90,13 @@ export default function AdminDashboard() {
   async function loadAll() {
     try {
       const [pRes, sRes, oRes, stRes, bRes, dRes, supRes] = await Promise.all([
-        fetch("/api/products"), fetch("/api/shops"), fetch("/api/orders"), fetch("/api/settings"), fetch("/api/banners"), fetch("/api/discounts"), fetch("/api/support"),
+        fetch("/api/products", { credentials: "include", cache: "no-store" }),
+        fetch("/api/shops", { credentials: "include", cache: "no-store" }),
+        fetch("/api/orders", { credentials: "include", cache: "no-store" }),
+        fetch("/api/settings", { credentials: "include", cache: "no-store" }),
+        fetch("/api/banners", { credentials: "include", cache: "no-store" }),
+        fetch("/api/discounts", { credentials: "include", cache: "no-store" }),
+        fetch("/api/support", { credentials: "include", cache: "no-store" }),
       ]);
       setProducts(await pRes.json());
       setShops(await sRes.json());

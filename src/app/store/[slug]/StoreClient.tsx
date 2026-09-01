@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useTransition } from "react";
+import Link from "next/link";
+import { useCart } from "@/lib/cart";
 
 type Product = {
   id: number;
@@ -12,14 +14,13 @@ type Product = {
   stock: number;
 };
 
-type CartItem = Product & { quantity: number };
-
 type Shop = {
   id: number;
   name: string;
   slug: string;
   image: string | null;
   bannerImage: string | null;
+  phone?: string | null;
 };
 
 type Banner = { id: number; image: string };
@@ -59,9 +60,19 @@ const Icons = {
   share: <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" /></svg>,
 };
 
-export default function StoreClient({ shop, products, bestsellers, sliderBanners, bottomBanners, settings, bestsellerTitle }: Props) {
+export default function StoreClient({
+  shop,
+  products,
+  bestsellers,
+  sliderBanners,
+  bottomBanners,
+  settings,
+  bestsellerTitle,
+}: Props) {
   const primary = settings.primary_color || "#FF1744";
   const secondary = settings.secondary_color || "#37474F";
+
+  const { cart, addItem, setItemQuantity, removeItem, clear, totalCount, totalAmount } = useCart(shop.slug);
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [phone, setPhone] = useState("");
@@ -69,21 +80,13 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
   const [otpSent, setOtpSent] = useState(false);
   const [otpError, setOtpError] = useState("");
   const [countdown, setCountdown] = useState(0);
-  const [cart, setCart] = useState<CartItem[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem(`cart_${shop.slug}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
   const [activeTab, setActiveTab] = useState<"store" | "profile" | "orders" | "more">("store");
-  const [showCart, setShowCart] = useState(false);
+  const [showCartDrawer, setShowCartDrawer] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
-  const [customer, setCustomer] = useState<{ id: number; name: string | null; phone: string; address: string | null } | null>(null);
+  const [customer, setCustomer] = useState<{ id: number; name: string | null; phone: string; address: string | null; postalCode?: string | null } | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [checkoutForm, setCheckoutForm] = useState({ name: "", address: "", postalCode: "", shipping: "post" });
   const [discountCode, setDiscountCode] = useState("");
@@ -93,21 +96,33 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
   const [publicDiscounts, setPublicDiscounts] = useState<PublicDiscount[]>([]);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [toastMessage, setToastMessage] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
   const [supportSent, setSupportSent] = useState(false);
   const [supportTickets, setSupportTickets] = useState<any[]>([]);
 
   const bestsellerRef = useRef<HTMLDivElement>(null);
+  const [, startTransition] = useTransition();
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(""), 3000);
+  };
 
   // Check login status
   useEffect(() => {
     fetch("/api/customer/profile", { credentials: "include" })
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data && data.id) {
           setIsLoggedIn(true);
           setCustomer(data);
-          setCheckoutForm((f) => ({ ...f, name: data.name || "", address: data.address || "" }));
+          setCheckoutForm((f) => ({
+            ...f,
+            name: data.name || "",
+            address: data.address || "",
+            postalCode: data.postalCode || data.postal_code || "",
+          }));
         }
       })
       .catch(() => {});
@@ -115,31 +130,11 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
 
   // Public discount codes
   useEffect(() => {
-    fetch("/api/discounts")
-      .then((r) => r.json())
+    fetch("/api/discounts", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
       .then((data) => setPublicDiscounts(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
-
-  // Cart persistence and synchronization
-  useEffect(() => {
-    try {
-      localStorage.setItem(`cart_${shop.slug}`, JSON.stringify(cart));
-      window.dispatchEvent(new Event("storage"));
-    } catch {}
-  }, [cart, shop.slug]);
-
-  // Listen for storage updates across pages
-  useEffect(() => {
-    const handleStorage = () => {
-      try {
-        const saved = localStorage.getItem(`cart_${shop.slug}`);
-        if (saved) setCart(JSON.parse(saved));
-      } catch {}
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, [shop.slug]);
 
   // Slider auto-play
   useEffect(() => {
@@ -173,12 +168,12 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
       const data = await res.json();
       if (data.success) {
         setOtpSent(true);
-        setCountdown(120); // 2 minutes
+        setCountdown(120);
       } else {
         setOtpError(data.error || "خطا در ارسال کد");
       }
     } catch {
-      setOtpError("خطای ارتباط");
+      setOtpError("خطای ارتباط با سرور");
     } finally {
       setLoginLoading(false);
     }
@@ -203,54 +198,55 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
       if (data.success) {
         setIsLoggedIn(true);
         setCustomer(data.customer);
-        setCheckoutForm((f) => ({ ...f, name: data.customer.name || "", address: data.customer.address || "" }));
+        setCheckoutForm((f) => ({
+          ...f,
+          name: data.customer.name || "",
+          address: data.customer.address || "",
+          postalCode: data.customer.postalCode || data.customer.postal_code || "",
+        }));
+        setShowLoginModal(false);
+        showToast("ورود با موفقیت انجام شد");
       } else {
         setOtpError(data.error || "کد نامعتبر است");
       }
     } catch {
-      setOtpError("خطای ارتباط");
+      setOtpError("خطای ارتباط با سرور");
     } finally {
       setLoginLoading(false);
     }
   };
 
-  const addToCart = (product: Product) => {
-    setCart((prev) => {
-      const existing = prev.find((i) => i.id === product.id);
-      if (existing) return prev.map((i) => i.id === product.id ? { ...i, quantity: i.quantity + 1 } : i);
-      return [...prev, { ...product, quantity: 1 }];
-    });
+  const handleAddToCart = (product: Product) => {
+    addItem(product, 1);
+    showToast(`✓ «${product.name}» به سبد خرید اضافه شد.`);
   };
 
-  const removeFromCart = (productId: number) => setCart((prev) => prev.filter((i) => i.id !== productId));
-
-  const updateQuantity = (productId: number, qty: number) => {
-    if (qty <= 0) { removeFromCart(productId); return; }
-    setCart((prev) => prev.map((i) => (i.id === productId ? { ...i, quantity: qty } : i)));
-  };
-
-  const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-  const discountAmount = discountType === "percentage"
-    ? Math.floor(cartTotal * discountValue / 100)
-    : Math.min(discountValue, cartTotal);
-  const discountedTotal = Math.max(0, cartTotal - discountAmount);
+  const discountAmount =
+    discountType === "percentage"
+      ? Math.floor((totalAmount * discountValue) / 100)
+      : Math.min(discountValue, totalAmount);
+  const discountedTotal = Math.max(0, totalAmount - discountAmount);
 
   const applyDiscount = async () => {
-    if (!discountCode) return;
-    const res = await fetch("/api/discounts/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: discountCode }),
-      credentials: "include",
-    });
-    const data = await res.json();
-    if (data.valid) {
-      setDiscountType(data.type);
-      setDiscountValue(data.value);
-      setDiscountMessage(data.label);
-    } else {
-      setDiscountMessage("کد تخفیف نامعتبر است");
-      setDiscountValue(0);
+    if (!discountCode.trim()) return;
+    try {
+      const res = await fetch("/api/discounts/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: discountCode.trim() }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setDiscountType(data.type);
+        setDiscountValue(data.value);
+        setDiscountMessage(data.label);
+      } else {
+        setDiscountMessage("کد تخفیف نامعتبر است");
+        setDiscountValue(0);
+      }
+    } catch {
+      setDiscountMessage("خطا در بررسی کد تخفیف");
     }
   };
 
@@ -261,14 +257,46 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shopId: shop.id, customerName: checkoutForm.name, customerPhone: customer?.phone, customerAddress: checkoutForm.address, shippingMethod: checkoutForm.shipping, totalAmount: discountedTotal, items: cart.map((i) => ({ productId: i.id, name: i.name, price: i.price, quantity: i.quantity, image: i.image })) }),
+        body: JSON.stringify({
+          shopId: shop.id,
+          customerName: checkoutForm.name,
+          customerPhone: customer?.phone || phone,
+          customerAddress: checkoutForm.address,
+          customerPostalCode: checkoutForm.postalCode,
+          shippingMethod: checkoutForm.shipping,
+          totalAmount: discountedTotal,
+          items: cart.map((i) => ({
+            productId: i.id,
+            name: i.name,
+            price: i.price,
+            quantity: i.quantity,
+            image: i.image,
+          })),
+        }),
         credentials: "include",
       });
-      if (res.ok) { setCart([]); setShowCheckout(false); setShowCart(false); setOrderSuccess(true); setDiscountCode(""); setDiscountValue(0); setTimeout(() => setOrderSuccess(false), 5000); }
-    } catch {} finally { setLoading(false); }
+      if (res.ok) {
+        clear();
+        setShowCheckout(false);
+        setShowCartDrawer(false);
+        setOrderSuccess(true);
+        setDiscountCode("");
+        setDiscountValue(0);
+      } else {
+        const err = await res.json();
+        alert(err.error || "خطا در ثبت سفارش");
+      }
+    } catch {
+      alert("خطای ارتباط با سرور");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const loadSupport = async () => { const r=await fetch("/api/support",{credentials:"include"}); if(r.ok) setSupportTickets(await r.json()); };
+  const loadSupport = async () => {
+    const r = await fetch("/api/support", { credentials: "include" });
+    if (r.ok) setSupportTickets(await r.json());
+  };
 
   const loadOrders = async () => {
     const res = await fetch("/api/orders", { credentials: "include" });
@@ -278,34 +306,68 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
 
   const updateProfile = async () => {
     setLoading(true);
-    try { await fetch("/api/customer/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: checkoutForm.name, address: checkoutForm.address }), credentials: "include" }); } catch {} finally { setLoading(false); }
+    try {
+      await fetch("/api/customer/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: checkoutForm.name,
+          address: checkoutForm.address,
+          postalCode: checkoutForm.postalCode,
+        }),
+        credentials: "include",
+      });
+      showToast("اطلاعات کاربری ذخیره شد");
+    } catch {
+      alert("خطا در ذخیره اطلاعات");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "customer" }), credentials: "include" });
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "customer" }),
+      credentials: "include",
+    });
     setIsLoggedIn(false);
     setCustomer(null);
     setOtpSent(false);
     setOtpCode("");
     setPhone("");
+    showToast("از حساب خارج شدید");
   };
 
   const scrollBestseller = (dir: "left" | "right") => {
-    if (bestsellerRef.current) bestsellerRef.current.scrollBy({ left: dir === "left" ? -220 : 220, behavior: "smooth" });
+    if (bestsellerRef.current) {
+      bestsellerRef.current.scrollBy({ left: dir === "left" ? -220 : 220, behavior: "smooth" });
+    }
   };
 
-  const [showLoginModal, setShowLoginModal] = useState(false);
-
-  /* ── ORDER SUCCESS ── */
+  /* ── ORDER SUCCESS SCREEN ── */
   if (orderSuccess) {
     return (
-      <div className="fixed inset-0 z-50 bg-white flex items-center justify-center animate-fadeIn">
-        <div className="text-center px-6">
-          <div className="mx-auto mb-6" style={{ color: "#22c55e" }}>{Icons.check}</div>
-          <h2 className="text-xl font-black mb-2" style={{ color: secondary }}>سفارش شما ثبت شد</h2>
-          <p className="text-gray-400 text-sm mb-8">به زودی با شما تماس گرفته می‌شود</p>
-          <button onClick={() => setOrderSuccess(false)} className="px-8 py-3 rounded-xl text-white font-bold text-sm" style={{ background: primary }}>
-            بازگشت به فروشگاه
+      <div className="fixed inset-0 z-50 bg-white flex items-center justify-center animate-fadeIn p-6" dir="rtl">
+        <div className="text-center max-w-sm w-full">
+          <div className="mx-auto mb-6 text-emerald-500">{Icons.check}</div>
+          <h2 className="text-2xl font-black mb-2" style={{ color: secondary }}>
+            سفارش شما با موفقیت ثبت شد
+          </h2>
+          <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+            کد رهگیری و جزئیات سفارش برای شما پیامک خواهد شد. با تشکر از خرید شما از {shop.name}.
+          </p>
+          <button
+            onClick={() => {
+              setOrderSuccess(false);
+              setActiveTab("orders");
+              loadOrders();
+            }}
+            className="w-full py-3.5 rounded-2xl text-white font-bold text-sm shadow-lg active:scale-95 transition-all"
+            style={{ background: primary }}
+          >
+            مشاهده سفارش در پنل
           </button>
         </div>
       </div>
@@ -313,86 +375,753 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] pb-[72px]">
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-24 font-sans antialiased select-none" dir="rtl">
+      {/* TOAST NOTIFICATION */}
+      {toastMessage && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md text-white text-xs font-bold px-4 py-2.5 rounded-2xl shadow-xl border border-white/10 animate-slideDown">
+          {toastMessage}
+        </div>
+      )}
+
+      {/* HEADER */}
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-slate-100 shadow-sm">
+        <div className="max-w-xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {shop.image ? (
+              <img src={shop.image} alt={shop.name} className="w-10 h-10 rounded-xl object-cover shadow-sm border border-slate-100" />
+            ) : (
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm text-white shadow-sm" style={{ background: primary }}>
+                {shop.name.charAt(0)}
+              </div>
+            )}
+            <div>
+              <h1 className="font-black text-sm text-slate-900 leading-tight">{shop.name}</h1>
+              <p className="text-[10px] text-slate-400 font-medium">فروشگاه آنلاین رسمی</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Cart Button */}
+            <button
+              onClick={() => setShowCartDrawer(true)}
+              className="relative p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 active:scale-95 transition-all"
+              title="سبد خرید"
+            >
+              {Icons.cart}
+              {totalCount > 0 && (
+                <span
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-white text-[11px] font-black flex items-center justify-center shadow-md animate-scaleIn"
+                  style={{ background: primary }}
+                >
+                  {totalCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* MAIN TAB CONTENT */}
+      {activeTab === "store" && (
+        <main className="max-w-xl mx-auto space-y-6 pb-6 animate-fadeIn">
+          {/* SLIDER BANNERS */}
+          {sliderBanners.length > 0 && (
+            <div className="relative mx-4 mt-4 overflow-hidden rounded-3xl shadow-sm aspect-[16/9] bg-slate-200">
+              <div
+                className="flex h-full transition-transform duration-500 ease-out"
+                style={{ transform: `translateX(${currentSlide * 100}%)` }}
+              >
+                {sliderBanners.map((banner, i) => (
+                  <img
+                    key={banner.id || i}
+                    src={banner.image}
+                    alt=""
+                    className="w-full h-full object-cover shrink-0"
+                  />
+                ))}
+              </div>
+              {sliderBanners.length > 1 && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 bg-black/20 backdrop-blur-md px-3 py-1 rounded-full">
+                  {sliderBanners.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setCurrentSlide(i)}
+                      className={`h-1.5 rounded-full transition-all ${
+                        currentSlide === i ? "w-5 bg-white" : "w-1.5 bg-white/50"
+                      }`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* BESTSELLERS CAROUSEL */}
+          {bestsellers.length > 0 && (
+            <div className="px-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-black text-slate-800">{bestsellerTitle}</h2>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => scrollBestseller("right")}
+                    className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  >
+                    {Icons.chevronRight}
+                  </button>
+                  <button
+                    onClick={() => scrollBestseller("left")}
+                    className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  >
+                    {Icons.chevronLeft}
+                  </button>
+                </div>
+              </div>
+
+              <div
+                ref={bestsellerRef}
+                className="flex gap-3 overflow-x-auto no-scrollbar pb-2 scroll-smooth"
+              >
+                {bestsellers.map((product) => (
+                  <div
+                    key={product.id}
+                    className="w-44 shrink-0 bg-white rounded-2xl p-3 border border-slate-100 shadow-sm flex flex-col justify-between"
+                  >
+                    <Link
+                      href={`/store/${shop.slug}/product/${product.id}`}
+                      className="block group"
+                    >
+                      <div className="relative aspect-square rounded-xl overflow-hidden mb-2.5 bg-slate-100">
+                        <img
+                          src={product.image || "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400&h=400&fit=crop"}
+                          alt={product.name}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                        <span
+                          className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[9px] font-black text-white shadow-sm"
+                          style={{ background: primary }}
+                        >
+                          ویژه
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-xs text-slate-800 line-clamp-2 h-8 leading-4 mb-1">
+                        {product.name}
+                      </h3>
+                      <p className="font-black text-xs" style={{ color: primary }}>
+                        {formatPrice(product.price)}
+                      </p>
+                    </Link>
+                    <button
+                      onClick={() => handleAddToCart(product)}
+                      className="w-full mt-2.5 py-2 rounded-xl text-white text-xs font-bold shadow-sm active:scale-95 transition-all"
+                      style={{ background: primary }}
+                    >
+                      افزودن به سبد
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ALL PRODUCTS GRID */}
+          <div className="px-4">
+            <h2 className="text-base font-black text-slate-800 mb-3.5">همه محصولات</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {products.map((product) => (
+                <div
+                  key={product.id}
+                  className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm flex flex-col justify-between"
+                >
+                  <Link
+                    href={`/store/${shop.slug}/product/${product.id}`}
+                    className="block group"
+                  >
+                    <div className="aspect-square rounded-xl overflow-hidden mb-2.5 bg-slate-100">
+                      <img
+                        src={product.image || "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400&h=400&fit=crop"}
+                        alt={product.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                    <h3 className="font-bold text-xs text-slate-800 line-clamp-2 h-8 leading-4 mb-1">
+                      {product.name}
+                    </h3>
+                    <p className="font-black text-xs" style={{ color: primary }}>
+                      {formatPrice(product.price)}
+                    </p>
+                  </Link>
+                  <button
+                    onClick={() => handleAddToCart(product)}
+                    className="w-full mt-2.5 py-2 rounded-xl text-white text-xs font-bold shadow-sm active:scale-95 transition-all"
+                    style={{ background: primary }}
+                  >
+                    افزودن به سبد
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* BOTTOM BANNERS */}
+          {bottomBanners.length > 0 && (
+            <div className="px-4 space-y-3">
+              {bottomBanners.map((banner, i) => (
+                <div key={banner.id || i} className="rounded-3xl overflow-hidden shadow-sm">
+                  <img src={banner.image} alt="" className="w-full h-auto object-cover" />
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+      )}
+
+      {/* PROFILE TAB */}
+      {activeTab === "profile" && (
+        <div className="max-w-xl mx-auto p-4 animate-fadeIn">
+          <h2 className="text-lg font-black mb-4" style={{ color: secondary }}>
+            حساب کاربری
+          </h2>
+          {!isLoggedIn ? (
+            <div className="bg-white rounded-3xl p-8 text-center shadow-sm border border-slate-100">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4 text-slate-400">
+                {Icons.user}
+              </div>
+              <h3 className="font-black text-base mb-2 text-slate-800">ورود به حساب مشتری</h3>
+              <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                برای ثبت آسان سفارش‌ها و رهگیری مرسوله‌ها شماره همراه خود را وارد کنید.
+              </p>
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="w-full py-3.5 rounded-2xl text-white font-bold text-sm shadow-md active:scale-95 transition-all"
+                style={{ background: primary }}
+              >
+                ورود / ثبت نام با شماره همراه
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl p-5 space-y-4 shadow-sm border border-slate-100">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1.5">شماره همراه</label>
+                <input
+                  type="text"
+                  value={customer?.phone || ""}
+                  disabled
+                  className="w-full px-4 py-3 rounded-xl bg-slate-100 border border-slate-200 text-sm text-slate-500 font-mono"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">نام و نام خانوادگی</label>
+                <input
+                  type="text"
+                  value={checkoutForm.name}
+                  onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })}
+                  placeholder="نام و نام خانوادگی"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:bg-white focus:ring-2 focus:ring-rose-500 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">کدپستی ۱۰ رقمی</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={checkoutForm.postalCode}
+                  onChange={(e) =>
+                    setCheckoutForm({
+                      ...checkoutForm,
+                      postalCode: e.target.value.replace(/\D/g, "").slice(0, 10),
+                    })
+                  }
+                  placeholder="۱۰ رقم بدون خط تیره"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm font-mono text-left"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">آدرس کامل پستی</label>
+                <textarea
+                  rows={3}
+                  value={checkoutForm.address}
+                  onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })}
+                  placeholder="استان، شهر، خیابان، پلاک، واحد"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:bg-white focus:ring-2 focus:ring-rose-500 transition-all resize-none"
+                />
+              </div>
+              <button
+                onClick={updateProfile}
+                disabled={loading}
+                className="w-full py-3.5 rounded-2xl text-white font-bold text-sm shadow-md active:scale-95 transition-all"
+                style={{ background: primary }}
+              >
+                {loading ? "در حال ذخیره..." : "ذخیره تغییرات"}
+              </button>
+              <button
+                onClick={logout}
+                className="w-full py-3 rounded-2xl border border-slate-200 text-slate-500 font-bold text-xs flex items-center justify-center gap-2 hover:bg-slate-50 transition-all"
+              >
+                {Icons.logout}
+                <span>خروج از حساب</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ORDERS TAB */}
+      {activeTab === "orders" && (
+        <div className="max-w-xl mx-auto p-4 animate-fadeIn">
+          <h2 className="text-lg font-black mb-4" style={{ color: secondary }}>
+            سفارش‌های من
+          </h2>
+          {!isLoggedIn ? (
+            <div className="bg-white rounded-3xl p-8 text-center shadow-sm border border-slate-100">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4 text-slate-400">
+                {Icons.orders}
+              </div>
+              <h3 className="font-black text-base mb-2 text-slate-800">مشاهده و پیگیری سفارش‌ها</h3>
+              <p className="text-xs text-slate-500 mb-6">
+                برای مشاهده سوابق خرید و وضعیت ارسال سفارش‌ها وارد حساب شوید.
+              </p>
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="w-full py-3.5 rounded-2xl text-white font-bold text-sm shadow-md active:scale-95 transition-all"
+                style={{ background: primary }}
+              >
+                ورود با شماره همراه
+              </button>
+            </div>
+          ) : (
+            <OrdersTab orders={orders} loadOrders={loadOrders} primary={primary} secondary={secondary} />
+          )}
+        </div>
+      )}
+
+      {/* MORE TAB */}
+      {activeTab === "more" && (
+        <div className="max-w-xl mx-auto p-4 space-y-4 animate-fadeIn">
+          <h2 className="text-lg font-black mb-4" style={{ color: secondary }}>
+            بیشتر
+          </h2>
+          {/* Discounts card */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${primary}15`, color: primary }}>
+                {Icons.tag}
+              </div>
+              <h3 className="font-black text-sm text-slate-800">تخفیف‌های شگفت‌انگیز</h3>
+            </div>
+            {publicDiscounts.length > 0 ? (
+              <div className="space-y-2">
+                {publicDiscounts.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => {
+                      setDiscountCode(d.code);
+                      setShowCartDrawer(true);
+                    }}
+                    className="w-full flex items-center justify-between p-3.5 rounded-2xl border-2 border-dashed transition-all hover:bg-slate-50 text-right"
+                    style={{ borderColor: `${primary}30` }}
+                  >
+                    <span className="font-mono font-black text-sm" dir="ltr" style={{ color: primary }}>
+                      {d.code}
+                    </span>
+                    <span className="text-xs font-bold text-slate-600">
+                      {d.type === "percentage" ? `${d.value}% تخفیف` : `${formatPrice(d.value)} تخفیف`}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">کد تخفیف عمومی فعالی در حال حاضر وجود ندارد.</p>
+            )}
+          </div>
+
+          {/* Support card */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
+            <h3 className="font-black text-sm text-slate-800 mb-2">ارتباط با پشتیبانی</h3>
+            <p className="text-xs text-slate-500 mb-3">
+              سوال یا مشکلی در سفارش خود دارید؟ پیام خود را برای ما ارسال کنید.
+            </p>
+            <textarea
+              rows={3}
+              value={supportMessage}
+              onChange={(e) => setSupportMessage(e.target.value)}
+              placeholder="متن پیام شما..."
+              className="w-full p-3 rounded-2xl bg-slate-50 border border-slate-200 text-sm focus:bg-white focus:ring-2 focus:ring-rose-500 transition-all resize-none"
+            />
+            <button
+              onClick={async () => {
+                if (!supportMessage.trim()) return;
+                const r = await fetch("/api/support", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ subject: `پشتیبانی فروشگاه ${shop.name}`, message: supportMessage }),
+                  credentials: "include",
+                });
+                if (r.ok) {
+                  setSupportMessage("");
+                  setSupportSent(true);
+                  showToast("پیام شما ارسال شد");
+                } else {
+                  setShowLoginModal(true);
+                }
+              }}
+              className="w-full mt-3 py-3 rounded-2xl text-white font-bold text-sm shadow-md active:scale-95 transition-all"
+              style={{ background: primary }}
+            >
+              ارسال پیام
+            </button>
+            {supportSent && <p className="text-xs text-emerald-600 font-bold mt-2 text-center">پیام با موفقیت ارسال شد.</p>}
+          </div>
+
+          {/* Share card */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${primary}15`, color: primary }}>
+                {Icons.share}
+              </div>
+              <h3 className="font-black text-sm text-slate-800">اشتراک‌گذاری فروشگاه</h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              لینک اختصاصی این فروشگاه را با دوستان خود به اشتراک بگذارید.
+            </p>
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(window.location.href);
+                showToast("لینک فروشگاه کپی شد");
+              }}
+              className="w-full py-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 border border-slate-200 hover:bg-slate-50 transition-all"
+              style={{ color: primary }}
+            >
+              {Icons.copy}
+              <span>کپی لینک صفحه فروشگاه</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* FAST SLIDE-OVER CART DRAWER */}
+      {showCartDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end animate-fadeIn">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => {
+              setShowCartDrawer(false);
+              setShowCheckout(false);
+            }}
+          />
+
+          {/* Drawer Content */}
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col z-10 animate-slideLeft">
+            {/* Drawer Header */}
+            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span style={{ color: primary }}>{Icons.cart}</span>
+                <h3 className="font-black text-base text-slate-800">
+                  {showCheckout ? "تکمیل و نهایی‌سازی خرید" : `سبد خرید (${totalCount})`}
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowCartDrawer(false);
+                  setShowCheckout(false);
+                }}
+                className="w-8 h-8 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition-all"
+              >
+                {Icons.close}
+              </button>
+            </div>
+
+            {/* Drawer Body */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {!showCheckout ? (
+                cart.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
+                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-3 text-slate-300">
+                      {Icons.cart}
+                    </div>
+                    <p className="text-sm font-bold">سبد خرید شما خالی است</p>
+                    <p className="text-xs text-slate-400 mt-1">محصولات مورد نظرتان را به سبد خرید اضافه کنید.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {cart.map((item) => (
+                      <div
+                        key={item.id}
+                        className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex gap-3 items-center"
+                      >
+                        <img
+                          src={item.image || "https://via.placeholder.com/80"}
+                          alt={item.name}
+                          className="w-16 h-16 rounded-xl object-cover bg-white shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-xs text-slate-800 truncate">{item.name}</h4>
+                          <p className="text-xs font-black mt-1" style={{ color: primary }}>
+                            {formatPrice(item.price)}
+                          </p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              onClick={() => setItemQuantity(item.id, item.quantity - 1)}
+                              className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
+                            >
+                              {item.quantity === 1 ? Icons.trash : Icons.minus}
+                            </button>
+                            <span className="font-bold text-xs w-6 text-center text-slate-800">
+                              {item.quantity}
+                            </span>
+                            <button
+                              onClick={() => setItemQuantity(item.id, item.quantity + 1)}
+                              className="w-7 h-7 rounded-lg text-white flex items-center justify-center active:scale-95 transition-all"
+                              style={{ background: primary }}
+                            >
+                              {Icons.plus}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Discount Box */}
+                    <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/60 mt-4 space-y-2">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={discountCode}
+                          onChange={(e) => setDiscountCode(e.target.value)}
+                          placeholder="کد تخفیف (مثال: AKMA10)"
+                          className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-mono"
+                          dir="ltr"
+                        />
+                        <button
+                          onClick={applyDiscount}
+                          className="px-4 py-2 rounded-xl text-white text-xs font-bold shadow-sm active:scale-95 transition-all"
+                          style={{ background: primary }}
+                        >
+                          اعمال
+                        </button>
+                      </div>
+                      {discountMessage && (
+                        <p className="text-[11px] font-bold text-center text-rose-600">{discountMessage}</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              ) : (
+                /* CHECKOUT FORM IN DRAWER */
+                <div className="space-y-4">
+                  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/60 space-y-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">نام و نام خانوادگی تحویل گیرنده</label>
+                      <input
+                        type="text"
+                        value={checkoutForm.name}
+                        onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })}
+                        placeholder="نام و نام خانوادگی"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs focus:ring-2 focus:ring-rose-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">کدپستی ۱۰ رقمی</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={checkoutForm.postalCode}
+                        onChange={(e) =>
+                          setCheckoutForm({
+                            ...checkoutForm,
+                            postalCode: e.target.value.replace(/\D/g, "").slice(0, 10),
+                          })
+                        }
+                        placeholder="۱۰ رقم بدون فاصله"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs font-mono text-left"
+                        dir="ltr"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">آدرس دقیق پستی</label>
+                      <textarea
+                        rows={3}
+                        value={checkoutForm.address}
+                        onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })}
+                        placeholder="استان، شهر، خیابان، پلاک، واحد"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs resize-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">نحوه ارسال</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { key: "post", label: "پست پیشتاز" },
+                          { key: "tipax", label: "تیپاکس (پس‌کرایه)" },
+                        ].map((m) => (
+                          <button
+                            key={m.key}
+                            type="button"
+                            onClick={() => setCheckoutForm({ ...checkoutForm, shipping: m.key })}
+                            className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                              checkoutForm.shipping === m.key
+                                ? "bg-slate-900 text-white border-slate-900"
+                                : "bg-white text-slate-700 border-slate-200"
+                            }`}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Drawer Footer */}
+            {cart.length > 0 && (
+              <div className="p-4 border-t border-slate-100 bg-white shadow-lg space-y-3">
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>جمع اقلام:</span>
+                  <span className="font-bold text-slate-800">{formatPrice(totalAmount)}</span>
+                </div>
+                {discountValue > 0 && (
+                  <div className="flex justify-between text-xs text-emerald-600 font-bold">
+                    <span>تخفیف:</span>
+                    <span>-{formatPrice(discountAmount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-black text-slate-900 pt-2 border-t border-slate-100">
+                  <span>مبلغ قابل پرداخت:</span>
+                  <span style={{ color: primary }}>{formatPrice(discountedTotal)}</span>
+                </div>
+
+                {!showCheckout ? (
+                  <button
+                    onClick={() => {
+                      if (!isLoggedIn) {
+                        setShowLoginModal(true);
+                      } else {
+                        setShowCheckout(true);
+                      }
+                    }}
+                    className="w-full py-3.5 rounded-2xl text-white font-bold text-sm shadow-md active:scale-95 transition-all"
+                    style={{ background: primary }}
+                  >
+                    تکمیل و نهایی‌سازی خرید
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowCheckout(false)}
+                      className="px-4 py-3.5 rounded-2xl bg-slate-100 text-slate-600 font-bold text-xs"
+                    >
+                      بازگشت
+                    </button>
+                    <button
+                      onClick={placeOrder}
+                      disabled={
+                        loading ||
+                        !checkoutForm.name ||
+                        !checkoutForm.address ||
+                        checkoutForm.postalCode.length !== 10
+                      }
+                      className="flex-1 py-3.5 rounded-2xl text-white font-bold text-sm shadow-md active:scale-95 disabled:opacity-50 transition-all"
+                      style={{ background: primary }}
+                    >
+                      {loading ? "در حال ثبت سفارش..." : "ثبت نهایی سفارش"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* LOGIN MODAL */}
       {showLoginModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-5 animate-fadeIn">
-          <div className="relative bg-white rounded-3xl p-7 w-full max-w-sm shadow-2xl animate-scaleIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border border-slate-100 relative animate-scaleIn">
             <button
               onClick={() => setShowLoginModal(false)}
-              className="absolute top-4 left-4 w-8 h-8 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-gray-100"
+              className="absolute top-4 left-4 w-8 h-8 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center"
             >
               {Icons.close}
             </button>
+
             <div className="text-center mb-6">
-              <div className="w-14 h-14 rounded-2xl mx-auto mb-3 overflow-hidden shadow-lg ring-2 ring-gray-100">
-                <img src={shop.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=200&h=200&fit=crop"} alt={shop.name} className="w-full h-full object-cover" />
+              <div
+                className="w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center text-white font-black text-xl shadow-md"
+                style={{ background: primary }}
+              >
+                AK
               </div>
-              <h1 className="text-lg font-black" style={{ color: secondary }}>{shop.name}</h1>
-              <p className="text-gray-400 mt-1 text-xs">
-                {otpSent ? "کد تایید ارسال شده را وارد کنید" : "برای دسترسی و ثبت سفارش شماره موبایل خود را وارد کنید"}
-              </p>
+              <h3 className="text-lg font-black text-slate-900">ورود به حساب کاربری</h3>
+              <p className="text-xs text-slate-400 mt-1">جهت ثبت و پیگیری سفارش‌ها</p>
             </div>
 
             {otpError && (
-              <div className="bg-red-50 text-red-500 p-3 rounded-xl text-xs text-center mb-4 font-bold">{otpError}</div>
+              <div className="bg-rose-50 border border-rose-200 text-rose-600 p-3 rounded-xl text-xs text-center mb-4 font-bold">
+                {otpError}
+              </div>
             )}
 
             {!otpSent ? (
               <div className="space-y-3">
                 <input
-                  type="tel"
-                  placeholder="09123456789"
+                  type="text"
+                  inputMode="tel"
+                  maxLength={11}
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl bg-gray-50 border border-gray-100 text-center text-base tracking-[0.15em] focus:ring-2 transition-all"
-                  style={{ direction: "ltr", "--tw-ring-color": primary } as any}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+                  placeholder="شماره موبایل (مثال: 09123456789)"
+                  className="w-full px-4 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-sm font-mono text-left focus:ring-2 focus:ring-rose-500"
+                  dir="ltr"
                 />
                 <button
                   onClick={sendOTP}
-                  disabled={loginLoading}
-                  className="w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all hover:shadow-lg disabled:opacity-50"
+                  disabled={loginLoading || phone.length < 10}
+                  className="w-full py-3.5 rounded-2xl text-white font-bold text-sm shadow-md active:scale-95 disabled:opacity-50 transition-all"
                   style={{ background: primary }}
                 >
-                  {loginLoading ? "در حال ارسال..." : "دریافت کد تایید"}
+                  {loginLoading ? "در حال ارسال کد..." : "دریافت کد تایید"}
                 </button>
               </div>
             ) : (
               <div className="space-y-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-gray-400">{phone}</span>
-                  <button onClick={() => { setOtpSent(false); setOtpCode(""); }} className="text-xs font-bold" style={{ color: primary }}>
-                    تغییر شماره
-                  </button>
-                </div>
+                <p className="text-xs text-slate-500 text-center">
+                  کد تایید به شماره <span className="font-mono font-bold" dir="ltr">{phone}</span> ارسال شد.
+                </p>
                 <input
                   type="text"
-                  placeholder="کد ۶ رقمی"
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="w-full px-4 py-3.5 rounded-xl bg-gray-50 border border-gray-100 text-center text-2xl tracking-[0.5em] font-bold focus:ring-2 transition-all"
-                  style={{ direction: "ltr", "--tw-ring-color": primary } as any}
+                  inputMode="numeric"
                   maxLength={6}
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="کد ۴ رقمی پیامک شده"
+                  className="w-full px-4 py-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-sm font-mono text-center tracking-widest focus:ring-2 focus:ring-rose-500"
+                  dir="ltr"
                 />
                 <button
-                  onClick={async () => {
-                    await verifyOTP();
-                    setShowLoginModal(false);
-                  }}
+                  onClick={verifyOTP}
                   disabled={loginLoading || otpCode.length < 4}
-                  className="w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all hover:shadow-lg disabled:opacity-50"
+                  className="w-full py-3.5 rounded-2xl text-white font-bold text-sm shadow-md active:scale-95 disabled:opacity-50 transition-all"
                   style={{ background: primary }}
                 >
-                  {loginLoading ? "در حال بررسی..." : "تایید و ورود"}
+                  {loginLoading ? "در حال تایید..." : "تایید و ورود"}
                 </button>
-                <div className="text-center">
+                <div className="text-center pt-2">
                   {countdown > 0 ? (
-                    <span className="text-xs text-gray-400">
-                      ارسال مجدد تا {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, "0")}
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      ارسال مجدد تا {countdown} ثانیه دیگر
                     </span>
                   ) : (
-                    <button onClick={sendOTP} className="text-xs font-bold" style={{ color: primary }}>
-                      ارسال مجدد کد
+                    <button
+                      onClick={sendOTP}
+                      className="text-[11px] font-bold text-slate-600 hover:underline"
+                    >
+                      ارسال مجدد کد تایید
                     </button>
                   )}
                 </div>
@@ -402,301 +1131,32 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
         </div>
       )}
 
-      {/* Cart FAB */}
-      {cart.length > 0 && activeTab === "store" && !showCart && !showCheckout && (
-        <button onClick={() => setShowCart(true)}
-          className="fixed bottom-24 left-5 z-40 w-14 h-14 rounded-2xl shadow-xl flex items-center justify-center text-white animate-scaleIn"
-          style={{ background: primary, boxShadow: `0 8px 30px ${primary}40` }}>
-          {Icons.cart}
-          <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center text-white" style={{ background: secondary }}>
-            {cart.reduce((s, i) => s + i.quantity, 0)}
-          </span>
-        </button>
-      )}
-
-      {/* STORE TAB */}
-      {activeTab === "store" && !showCart && !showCheckout && (
-        <div className="animate-fadeIn">
-          {/* Banner */}
-          <div className="relative">
-            <div className="w-full h-52 sm:h-64 overflow-hidden">
-              <img src={shop.bannerImage || shop.image || "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=1200&h=400&fit=crop"} alt={shop.name} className="w-full h-full object-cover" />
-            </div>
-            <div className="absolute inset-0 bg-gradient-to-t from-[#FAFAFA] via-transparent to-transparent" />
-            <div className="absolute bottom-5 right-0 left-0 text-center">
-              <h1 className="text-3xl sm:text-4xl font-black text-3d">{shop.name}</h1>
-            </div>
-          </div>
-
-          {/* Bestsellers */}
-          {bestsellers.length > 0 && (
-            <div className="px-4 pt-6 pb-2">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-xs font-bold tracking-wide mb-0.5" style={{ color: primary }}>BEST SELLERS</p>
-                  <h2 className="text-base font-black" style={{ color: secondary }}>{bestsellerTitle}</h2>
-                </div>
-                <div className="flex gap-1.5">
-                  <button onClick={() => scrollBestseller("right")} className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center hover:shadow-md transition-shadow" style={{ color: secondary }}>{Icons.chevronRight}</button>
-                  <button onClick={() => scrollBestseller("left")} className="w-8 h-8 rounded-lg bg-white shadow-sm flex items-center justify-center hover:shadow-md transition-shadow" style={{ color: secondary }}>{Icons.chevronLeft}</button>
-                </div>
-              </div>
-              <div ref={bestsellerRef} className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
-                {bestsellers.map((p) => (
-                  <a href={`/store/${shop.slug}/product/${p.id}`} key={p.id} className="flex-shrink-0 w-40 bg-white rounded-2xl overflow-hidden shadow-sm card-hover block">
-                    <div className="h-32 overflow-hidden"><img src={p.image || "https://via.placeholder.com/200"} alt={p.name} className="w-full h-full object-cover" /></div>
-                    <div className="p-3">
-                      <p className="font-bold text-xs truncate" style={{ color: secondary }}>{p.name}</p>
-                      <p className="text-[11px] mt-1 font-bold" style={{ color: primary }}>{formatPrice(p.price)}</p>
-                      <button onClick={(e) => { e.preventDefault(); addToCart(p); }} className="w-full mt-2 py-1.5 rounded-lg text-white text-[11px] font-bold transition-all hover:opacity-90" style={{ background: primary }}>افزودن به سبد</button>
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Slider Banners */}
-          {sliderBanners.length > 0 && (
-            <div className="px-4 py-3">
-              <div className="relative rounded-2xl overflow-hidden">
-                <div className="relative h-36 sm:h-48">
-                  {sliderBanners.map((b, i) => (<img key={b.id} src={b.image} alt="" className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${i === currentSlide ? "opacity-100" : "opacity-0"}`} />))}
-                </div>
-                {sliderBanners.length > 1 && (
-                  <>
-                    <button onClick={() => setCurrentSlide((c) => c === 0 ? sliderBanners.length - 1 : c - 1)} className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-white/90 transition-colors" style={{ color: secondary }}>{Icons.chevronRight}</button>
-                    <button onClick={() => setCurrentSlide((c) => (c + 1) % sliderBanners.length)} className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-white/90 transition-colors" style={{ color: secondary }}>{Icons.chevronLeft}</button>
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                      {sliderBanners.map((_, i) => (<button key={i} onClick={() => setCurrentSlide(i)} className={`h-1.5 rounded-full transition-all duration-300 ${i === currentSlide ? "w-5 bg-white" : "w-1.5 bg-white/50"}`} />))}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* All Products */}
-          <div className="px-4 py-5">
-            <div className="flex items-center justify-center gap-3 mb-6">
-              <div className="flex-1 h-px bg-gray-200" />
-              <span className="text-sm font-bold px-3" style={{ color: secondary }}>همه محصولات</span>
-              <div className="flex-1 h-px bg-gray-200" />
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {products.map((p, idx) => (
-                <div key={p.id} className="bg-white rounded-2xl overflow-hidden shadow-sm card-hover animate-slideUp flex flex-col justify-between" style={{ animationDelay: `${idx * 40}ms` }}>
-                  <a href={`/store/${shop.slug}/product/${p.id}`} className="block">
-                    <div className="aspect-square overflow-hidden relative">
-                      <img src={p.image || "https://via.placeholder.com/200"} alt={p.name} className="w-full h-full object-cover" />
-                      {p.isBestseller && (<span className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[10px] text-white font-bold" style={{ background: primary }}>پرفروش</span>)}
-                    </div>
-                    <div className="p-3 pb-1">
-                      <h3 className="font-bold text-xs truncate" style={{ color: secondary }}>{p.name}</h3>
-                      <p className="text-[11px] text-gray-400 mt-1 line-clamp-1">{p.description}</p>
-                      <p className="text-xs font-black mt-2" style={{ color: primary }}>{formatPrice(p.price)}</p>
-                    </div>
-                  </a>
-                  <div className="p-3 pt-1">
-                    <button onClick={() => addToCart(p)} className="w-full py-2 rounded-xl text-white text-xs font-bold transition-all hover:opacity-90" style={{ background: primary }}>افزودن به سبد</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-          </div>
-
-          {/* Bottom Banners */}
-          {bottomBanners.length > 0 && (
-            <div className="px-4 py-3 space-y-3">
-              {bottomBanners.map((b) => (<div key={b.id} className="rounded-2xl overflow-hidden shadow-sm"><img src={b.image} alt="" className="w-full h-auto object-cover" /></div>))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* CART PANEL */}
-      {showCart && !showCheckout && (
-        <div className="animate-fadeIn">
-          <div className="flex items-center justify-between px-5 py-4 bg-white border-b border-gray-100">
-            <h2 className="text-base font-black" style={{ color: secondary }}>سبد خرید</h2>
-            <button onClick={() => setShowCart(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-50">{Icons.close}</button>
-          </div>
-          {cart.length === 0 ? (
-            <div className="text-center py-20"><div className="mx-auto mb-3 text-gray-200">{Icons.cart}</div><p className="text-gray-400 text-sm">سبد خرید خالی است</p></div>
-          ) : (
-            <div className="p-4">
-              <div className="space-y-2.5">
-                {cart.map((item) => (
-                  <div key={item.id} className="bg-white rounded-2xl p-3 flex gap-3">
-                    <img src={item.image || "https://via.placeholder.com/80"} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-xs truncate" style={{ color: secondary }}>{item.name}</h4>
-                      <p className="text-xs mt-0.5 font-bold" style={{ color: primary }}>{formatPrice(item.price)}</p>
-                      <div className="flex items-center gap-2.5 mt-2">
-                        <button onClick={() => updateQuantity(item.id, item.quantity - 1)} className="w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50">{Icons.minus}</button>
-                        <span className="text-sm font-bold w-5 text-center" style={{ color: secondary }}>{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.id, item.quantity + 1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-white" style={{ background: primary }}>{Icons.plus}</button>
-                        <button onClick={() => removeFromCart(item.id)} className="mr-auto text-gray-300 hover:text-red-400 transition-colors">{Icons.trash}</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-5 rounded-2xl p-5 text-white" style={{ background: `linear-gradient(135deg, ${secondary}, ${primary})` }}>
-                <div className="flex justify-between text-sm mb-2"><span className="text-white/70">جمع کل</span><span className="font-bold">{formatPrice(cartTotal)}</span></div>
-                {discountValue > 0 && (<div className="flex justify-between text-sm mb-2"><span className="text-yellow-300/80">{discountType === "percentage" ? `تخفیف ${discountValue}%` : "تخفیف مبلغی"}</span><span className="font-bold text-yellow-300">-{formatPrice(discountAmount)}</span></div>)}
-                <div className="flex gap-2 mt-3 mb-3">
-                  <input type="text" placeholder="کد تخفیف" value={discountCode} onChange={(e) => setDiscountCode(e.target.value)} className="flex-1 px-3 py-2 rounded-lg text-gray-900 text-xs bg-white/90" />
-                  <button onClick={applyDiscount} className="px-4 py-2 rounded-lg text-xs font-bold" style={{ background: "rgba(255,255,255,0.2)", color: "white" }}>اعمال</button>
-                </div>
-                {discountMessage && <p className="text-[11px] text-center mb-2 text-white/80">{discountMessage}</p>}
-                <div className="border-t border-white/20 pt-3 mt-1 flex justify-between"><span className="font-bold text-sm">مبلغ نهایی</span><span className="font-black">{formatPrice(discountedTotal)}</span></div>
-                <button onClick={() => {
-                  if (!isLoggedIn) {
-                    setShowLoginModal(true);
-                  } else {
-                    setShowCheckout(true);
-                  }
-                }} className="w-full mt-4 py-3 rounded-xl bg-white font-bold text-sm" style={{ color: primary }}>تکمیل خرید</button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* CHECKOUT */}
-      {showCheckout && (
-        <div className="animate-fadeIn">
-          <div className="flex items-center justify-between px-5 py-4 bg-white border-b border-gray-100">
-            <h2 className="text-base font-black" style={{ color: secondary }}>تکمیل سفارش</h2>
-            <button onClick={() => setShowCheckout(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-50">{Icons.close}</button>
-          </div>
-          <div className="p-4 space-y-3">
-            <div className="bg-white rounded-2xl p-5 space-y-4">
-              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-500">نام و نام خانوادگی</label><input type="text" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} placeholder="نام و نام خانوادگی" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm focus:ring-2 transition-all" style={{ "--tw-ring-color": primary } as any} /></div>
-              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-500">آدرس کامل</label><textarea value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} placeholder="شهر، خیابان، پلاک" rows={3} className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm resize-none focus:ring-2 transition-all" style={{ "--tw-ring-color": primary } as any} /></div>
-              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-500">کدپستی ۱۰ رقمی</label><input inputMode="numeric" maxLength={10} value={checkoutForm.postalCode} onChange={(e) => setCheckoutForm({ ...checkoutForm, postalCode: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="۱۰ رقم کدپستی" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm" dir="ltr" /></div>
-              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-500">نحوه ارسال</label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  {[{ key: "post", label: "پست پیشتاز" }, { key: "tipax", label: "تیپاکس" }].map((s) => (
-                    <button key={s.key} onClick={() => setCheckoutForm({ ...checkoutForm, shipping: s.key })} className="py-3 rounded-xl border-2 text-sm font-bold transition-all" style={{ borderColor: checkoutForm.shipping === s.key ? primary : "#f3f4f6", background: checkoutForm.shipping === s.key ? primary : "white", color: checkoutForm.shipping === s.key ? "white" : secondary }}>{s.label}</button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="rounded-2xl p-5 text-white" style={{ background: `linear-gradient(135deg, ${secondary}, ${primary})` }}>
-              <p className="text-xs font-bold text-white/60 mb-3">خلاصه سفارش</p>
-              {cart.map((item) => (<div key={item.id} className="flex justify-between text-xs mb-1"><span className="text-white/80">{item.name} × {item.quantity}</span><span>{formatPrice(item.price * item.quantity)}</span></div>))}
-              <div className="border-t border-white/20 mt-3 pt-3 flex justify-between"><span className="font-bold text-sm">مبلغ نهایی</span><span className="font-black">{formatPrice(discountedTotal)}</span></div>
-              <button onClick={placeOrder} disabled={loading || !checkoutForm.name || !checkoutForm.address || checkoutForm.postalCode.length !== 10} className="w-full mt-4 py-3 rounded-xl bg-white font-bold text-sm disabled:opacity-50" style={{ color: primary }}>{loading ? "در حال ثبت..." : "ثبت سفارش"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* PROFILE TAB */}
-      {activeTab === "profile" && (
-        <div className="animate-fadeIn p-4">
-          <h2 className="text-base font-black mb-6" style={{ color: secondary }}>پروفایل</h2>
-          {!isLoggedIn ? (
-            <div className="bg-white rounded-2xl p-8 text-center shadow-sm">
-              <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4 text-gray-400">
-                {Icons.user}
-              </div>
-              <h3 className="font-bold text-sm mb-2" style={{ color: secondary }}>ورود به حساب کاربری</h3>
-              <p className="text-xs text-gray-400 mb-6">برای مشاهده و ویرایش پروفایل ابتدا با شماره موبایل خود وارد شوید.</p>
-              <button onClick={() => setShowLoginModal(true)} className="px-8 py-3 rounded-xl text-white font-bold text-sm" style={{ background: primary }}>
-                ورود / ثبت‌نام با شماره موبایل
-              </button>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl p-5 space-y-4">
-              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">شماره موبایل</label><input type="text" value={customer?.phone || ""} disabled className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm text-gray-400" style={{ direction: "ltr" }} /></div>
-              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">نام</label><input type="text" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} placeholder="نام و نام خانوادگی" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm focus:ring-2 transition-all" style={{ "--tw-ring-color": primary } as any} /></div>
-              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">کدپستی</label><input inputMode="numeric" maxLength={10} value={checkoutForm.postalCode} onChange={(e) => setCheckoutForm({ ...checkoutForm, postalCode: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="۱۰ رقم کدپستی" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm" dir="ltr" /></div>
-              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">آدرس</label><textarea value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} placeholder="آدرس خود را وارد کنید" rows={3} className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm resize-none focus:ring-2 transition-all" style={{ "--tw-ring-color": primary } as any} /></div>
-              <button onClick={updateProfile} disabled={loading} className="w-full py-3 rounded-xl text-white font-bold text-sm" style={{ background: primary }}>{loading ? "در حال ذخیره..." : "ذخیره تغییرات"}</button>
-              <button onClick={logout} className="w-full py-3 rounded-xl border border-gray-200 text-gray-400 font-bold text-sm flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors">{Icons.logout}<span>خروج از حساب</span></button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ORDERS TAB */}
-      {activeTab === "orders" && (
-        !isLoggedIn ? (
-          <div className="animate-fadeIn p-4">
-            <h2 className="text-base font-black mb-5" style={{ color: secondary }}>سفارش‌ها</h2>
-            <div className="bg-white rounded-2xl p-8 text-center shadow-sm">
-              <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4 text-gray-400">
-                {Icons.orders}
-              </div>
-              <h3 className="font-bold text-sm mb-2" style={{ color: secondary }}>پیگیری و مشاهده سفارش‌ها</h3>
-              <p className="text-xs text-gray-400 mb-6">جهت مشاهده تاریخچه و وضعیت سفارش‌های خود وارد شوید.</p>
-              <button onClick={() => setShowLoginModal(true)} className="px-8 py-3 rounded-xl text-white font-bold text-sm" style={{ background: primary }}>
-                ورود با شماره موبایل
-              </button>
-            </div>
-          </div>
-        ) : (
-          <OrdersTab orders={orders} loadOrders={loadOrders} primary={primary} secondary={secondary} />
-        )
-      )}
-
-
-      {/* MORE TAB */}
-      {activeTab === "more" && (
-        <div className="animate-fadeIn p-4">
-          <h2 className="text-base font-black mb-5" style={{ color: secondary }}>بیشتر</h2>
-          <div className="space-y-2.5">
-            <div className="bg-white rounded-2xl p-5">
-              <div className="flex items-center gap-3 mb-3"><div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${primary}10`, color: primary }}>{Icons.tag}</div><h3 className="font-bold text-sm" style={{ color: secondary }}>کدهای تخفیف</h3></div>
-              {publicDiscounts.length > 0 ? (
-                <div className="space-y-2">
-                  {publicDiscounts.map((d) => (
-                    <button key={d.id} onClick={() => { setDiscountCode(d.code); setShowCart(true); setActiveTab("store"); }}
-                      className="w-full flex items-center justify-between gap-3 p-3 rounded-xl border border-dashed text-right transition-colors hover:bg-gray-50"
-                      style={{ borderColor: `${primary}40` }}>
-                      <span className="font-black text-sm" dir="ltr" style={{ color: primary }}>{d.code}</span>
-                      <span className="text-[11px] font-bold text-gray-500">{d.type === "percentage" ? `${d.value}% تخفیف` : `${formatPrice(d.value)} تخفیف`}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-400 text-xs leading-relaxed">در حال حاضر کد تخفیف عمومی وجود ندارد.</p>
-              )}
-            </div>
-            <div className="bg-white rounded-2xl p-5">
-              <h3 className="font-bold text-sm" style={{ color: secondary }}>پشتیبانی</h3>
-              <textarea value={supportMessage} onChange={e=>setSupportMessage(e.target.value)} rows={3} placeholder="پیام شما..." className="w-full mt-3 p-3 rounded-xl bg-gray-50 border border-gray-100 text-sm" />
-              <button onClick={async()=>{ if(!supportMessage.trim()) return; const r=await fetch("/api/support",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({subject:`پشتیبانی فروشگاه ${shop.name}`,message:supportMessage}),credentials:"include"}); if(r.ok){setSupportMessage("");setSupportSent(true)} else alert("ابتدا وارد حساب مشتری شوید."); }} className="w-full mt-2 py-3 rounded-xl bg-[#FF1744] text-white text-sm font-bold">ارسال پیام</button>
-              {supportSent && <p className="text-xs text-green-600 mt-2">پیام ارسال شد.</p>}
-              <button onClick={loadSupport} className="text-xs text-gray-400 mt-3">نمایش پاسخ‌های پشتیبانی</button>
-              {supportTickets.map((t:any)=><div key={t.id} className="mt-3 space-y-1">{t.messages?.map((m:any)=><div key={m.id} className="p-2 rounded-lg bg-gray-50 text-xs">{m.message}</div>)}</div>)}
-            </div>
-            <div className="bg-white rounded-2xl p-5">
-              <div className="flex items-center gap-3 mb-3"><div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${primary}10`, color: primary }}>{Icons.share}</div><h3 className="font-bold text-sm" style={{ color: secondary }}>اشتراک‌گذاری</h3></div>
-              <p className="text-gray-400 text-xs leading-relaxed mb-3">لینک فروشگاه را با دیگران به اشتراک بگذارید</p>
-              <button onClick={() => { navigator.clipboard?.writeText(window.location.href); alert("لینک کپی شد"); }} className="w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all" style={{ background: `${primary}08`, color: primary }}>{Icons.copy}<span>کپی لینک فروشگاه</span></button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* BOTTOM NAV */}
-      <div className="fixed bottom-0 right-0 left-0 bg-white/80 backdrop-blur-xl border-t border-gray-100 z-30">
-        <div className="flex justify-around items-center py-1.5 pb-safe max-w-lg mx-auto">
-          {([
+      {/* BOTTOM NAVIGATION BAR */}
+      <div className="fixed bottom-0 right-0 left-0 bg-white/95 backdrop-blur-xl border-t border-slate-200/80 z-40">
+        <div className="flex justify-around items-center py-2 max-w-xl mx-auto">
+          {[
             { key: "store" as const, icon: Icons.store, label: "فروشگاه" },
             { key: "profile" as const, icon: Icons.user, label: "پروفایل" },
             { key: "orders" as const, icon: Icons.orders, label: "سفارش‌ها" },
             { key: "more" as const, icon: Icons.more, label: "بیشتر" },
-          ]).map((tab) => (
-            <button key={tab.key} onClick={() => { setActiveTab(tab.key); setShowCart(false); setShowCheckout(false); if (tab.key === "orders") loadOrders(); if (tab.key === "more") loadSupport(); }} className="flex flex-col items-center py-1.5 px-4 rounded-xl transition-all duration-200 relative" style={{ color: activeTab === tab.key ? primary : "#c0c0c0" }}>
-              {activeTab === tab.key && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full" style={{ background: primary }} />}
-              <span className="transition-transform duration-200" style={{ transform: activeTab === tab.key ? "scale(1.1)" : "scale(1)" }}>{tab.icon}</span>
-              <span className="text-[10px] font-bold mt-0.5">{tab.label}</span>
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => {
+                setActiveTab(tab.key);
+                if (tab.key === "orders") loadOrders();
+                if (tab.key === "more") loadSupport();
+              }}
+              className="flex flex-col items-center py-1 px-4 rounded-xl transition-all duration-200 relative"
+              style={{ color: activeTab === tab.key ? primary : "#94a3b8" }}
+            >
+              {activeTab === tab.key && (
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full" style={{ background: primary }} />
+              )}
+              <span className="transition-transform duration-200" style={{ transform: activeTab === tab.key ? "scale(1.1)" : "scale(1)" }}>
+                {tab.icon}
+              </span>
+              <span className="text-[11px] font-bold mt-1">{tab.label}</span>
             </button>
           ))}
         </div>
@@ -705,28 +1165,96 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
   );
 }
 
-function OrdersTab({ orders, loadOrders, primary, secondary }: { orders: any[]; loadOrders: () => void; primary: string; secondary: string }) {
-  useEffect(() => { loadOrders(); }, [loadOrders]);
-  const statusLabels: Record<string, { label: string; color: string }> = { pending: { label: "در انتظار", color: "#FFA000" }, processing: { label: "پردازش", color: "#1976D2" }, shipped: { label: "ارسال شده", color: "#4CAF50" }, delivered: { label: "تحویل شده", color: "#2E7D32" } };
-  return (
-    <div className="animate-fadeIn p-4">
-      <h2 className="text-base font-black mb-5" style={{ color: secondary }}>سفارش‌ها</h2>
-      {orders.length === 0 ? (<div className="text-center py-16"><div className="mx-auto mb-3 text-gray-200">{Icons.orders}</div><p className="text-gray-400 text-sm">سفارشی ثبت نشده</p></div>) : (
-        <div className="space-y-2.5">
-          {orders.map((order) => {
-            const status = statusLabels[order.status] || statusLabels.pending;
-            const items = order.items as any[];
-            return (
-              <div key={order.id} className="bg-white rounded-2xl p-4">
-                <div className="flex justify-between items-center mb-3"><span className="text-xs font-bold text-gray-400">#{order.id}</span><span className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-white" style={{ background: status.color }}>{status.label}</span></div>
-                <div className="flex gap-1.5 mb-2">{items?.slice(0, 4).map((item: any, i: number) => (<img key={i} src={item.image || "https://via.placeholder.com/40"} alt="" className="w-10 h-10 rounded-lg object-cover" />))}{items && items.length > 4 && (<div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center text-[10px] font-bold text-gray-400">+{items.length - 4}</div>)}</div>
-                <div className="flex justify-between text-xs"><span className="text-gray-400">{order.shippingMethod === "post" ? "پست پیشتاز" : "تیپاکس"}</span><span className="font-bold" style={{ color: primary }}>{formatPrice(order.totalAmount)}</span></div>
-                {order.trackingLink && (<a href={order.trackingLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 mt-2 text-xs text-blue-500">{Icons.link}<span>پیگیری مرسوله</span></a>)}
-              </div>
-            );
-          })}
+function OrdersTab({
+  orders,
+  loadOrders,
+  primary,
+  secondary,
+}: {
+  orders: any[];
+  loadOrders: () => void;
+  primary: string;
+  secondary: string;
+}) {
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
+
+  const statusLabels: Record<string, { label: string; bg: string; text: string }> = {
+    pending: { label: "در انتظار بررسی", bg: "#fef3c7", text: "#b45309" },
+    processing: { label: "در حال بسته‌بندی", bg: "#e0f2fe", text: "#0369a1" },
+    shipped: { label: "ارسال شده", bg: "#dcfce7", text: "#15803d" },
+    delivered: { label: "تحویل شده", bg: "#f0fdf4", text: "#166534" },
+  };
+
+  if (orders.length === 0) {
+    return (
+      <div className="bg-white rounded-3xl p-10 text-center border border-slate-100 shadow-sm">
+        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3 text-slate-300">
+          {Icons.orders}
         </div>
-      )}
+        <p className="text-sm font-bold text-slate-700">هنوز سفارشی ثبت نکرده‌اید</p>
+        <p className="text-xs text-slate-400 mt-1">سفارش‌های شما پس از ثبت در این بخش نمایش داده می‌شوند.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {orders.map((order) => {
+        const status = statusLabels[order.status] || statusLabels.pending;
+        const items = (order.items as any[]) || [];
+        return (
+          <div key={order.id} className="bg-white rounded-3xl p-4 border border-slate-100 shadow-sm space-y-3">
+            <div className="flex justify-between items-center pb-2.5 border-b border-slate-100">
+              <span className="text-xs font-mono font-black text-slate-600">کد سفارش: #{order.id}</span>
+              <span
+                className="px-3 py-1 rounded-full text-[10px] font-black"
+                style={{ backgroundColor: status.bg, color: status.text }}
+              >
+                {status.label}
+              </span>
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto py-1">
+              {items.map((item: any, i: number) => (
+                <div key={i} className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100 shrink-0">
+                  <img
+                    src={item.image || "https://via.placeholder.com/40"}
+                    alt=""
+                    className="w-10 h-10 rounded-lg object-cover bg-white"
+                  />
+                  <div className="text-right">
+                    <p className="text-[11px] font-bold text-slate-800 line-clamp-1 max-w-[120px]">{item.name}</p>
+                    <p className="text-[10px] text-slate-400 font-bold">{item.quantity} عدد</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-between items-center text-xs pt-2 border-t border-slate-100">
+              <span className="text-slate-500">
+                روش ارسال: {order.shippingMethod === "post" ? "پست پیشتاز" : "تیپاکس"}
+              </span>
+              <span className="font-black text-sm" style={{ color: primary }}>
+                {formatPrice(order.totalAmount)}
+              </span>
+            </div>
+
+            {order.trackingLink && (
+              <a
+                href={order.trackingLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 p-2.5 rounded-xl bg-blue-50 text-blue-600 text-xs font-bold hover:bg-blue-100 transition-all"
+              >
+                {Icons.link}
+                <span>پیگیری مرسوله پستی</span>
+              </a>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
