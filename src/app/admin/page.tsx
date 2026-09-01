@@ -95,7 +95,7 @@ export default function AdminDashboard() {
         fetch("/api/orders", { credentials: "include", cache: "no-store" }),
         fetch("/api/settings", { credentials: "include", cache: "no-store" }),
         fetch("/api/banners", { credentials: "include", cache: "no-store" }),
-        fetch("/api/discounts?admin=1", { credentials: "include", cache: "no-store" }),
+        fetch(`/api/discounts?admin=1&t=${Date.now()}`, { credentials: "include", cache: "no-store" }),
         fetch("/api/support", { credentials: "include", cache: "no-store" }),
       ]);
       setProducts(await pRes.json());

@@ -150,7 +150,7 @@ export default function ProductClient({
 
   // Public discounts
   useEffect(() => {
-    fetch("/api/discounts", { credentials: "include" })
+    fetch(`/api/discounts?t=${Date.now()}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setPublicDiscounts(Array.isArray(data) ? data : []))
       .catch(() => {});

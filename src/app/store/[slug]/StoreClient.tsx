@@ -130,7 +130,7 @@ export default function StoreClient({
 
   // Public discount codes
   useEffect(() => {
-    fetch("/api/discounts", { credentials: "include" })
+    fetch(`/api/discounts?t=${Date.now()}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setPublicDiscounts(Array.isArray(data) ? data : []))
       .catch(() => {});

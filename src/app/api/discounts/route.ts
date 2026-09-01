@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { discountCodes } from "@/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { verifyToken } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 async function ensureDiscountSchema() {
   const client = await pool.connect();
@@ -53,23 +55,34 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const all = await db.select().from(discountCodes).orderBy(desc(discountCodes.createdAt));
-    return NextResponse.json(all);
+    return NextResponse.json(all, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
+    });
   }
 
-  // Public storefront endpoint: ALWAYS returns ONLY discounts that are explicitly public and active.
-  // Never expose hidden or inactive discounts to the storefront, even if an admin cookie is present.
-  const publicDiscounts = await db
-    .select({
-      id: discountCodes.id,
-      code: discountCodes.code,
-      type: discountCodes.type,
-      value: discountCodes.value,
-    })
-    .from(discountCodes)
-    .where(and(eq(discountCodes.isPublic, true), eq(discountCodes.isActive, true)))
-    .orderBy(desc(discountCodes.createdAt));
+  // Public storefront endpoint: ALWAYS returns ONLY discounts that are explicitly marked as public (isPublic === true) and active (isActive === true).
+  // Hidden discounts (isPublic === false) will NEVER be returned here.
+  const all = await db.select().from(discountCodes).orderBy(desc(discountCodes.createdAt));
+  const publicDiscounts = all
+    .filter((d) => d.isPublic === true && d.isActive === true)
+    .map((d) => ({
+      id: d.id,
+      code: d.code,
+      type: d.type,
+      value: d.value,
+    }));
 
-  return NextResponse.json(publicDiscounts);
+  return NextResponse.json(publicDiscounts, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  });
 }
 
 export async function POST(req: NextRequest) {
