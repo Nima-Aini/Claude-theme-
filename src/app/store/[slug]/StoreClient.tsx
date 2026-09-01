@@ -69,7 +69,15 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
   const [otpSent, setOtpSent] = useState(false);
   const [otpError, setOtpError] = useState("");
   const [countdown, setCountdown] = useState(0);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(`cart_${shop.slug}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [activeTab, setActiveTab] = useState<"store" | "profile" | "orders" | "more">("store");
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -113,15 +121,25 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
       .catch(() => {});
   }, []);
 
-  // Cart persistence
+  // Cart persistence and synchronization
   useEffect(() => {
-    const saved = localStorage.getItem(`cart_${shop.slug}`);
-    if (saved) setCart(JSON.parse(saved));
-  }, [shop.slug]);
-
-  useEffect(() => {
-    localStorage.setItem(`cart_${shop.slug}`, JSON.stringify(cart));
+    try {
+      localStorage.setItem(`cart_${shop.slug}`, JSON.stringify(cart));
+      window.dispatchEvent(new Event("storage"));
+    } catch {}
   }, [cart, shop.slug]);
+
+  // Listen for storage updates across pages
+  useEffect(() => {
+    const handleStorage = () => {
+      try {
+        const saved = localStorage.getItem(`cart_${shop.slug}`);
+        if (saved) setCart(JSON.parse(saved));
+      } catch {}
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [shop.slug]);
 
   // Slider auto-play
   useEffect(() => {
@@ -276,87 +294,7 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
     if (bestsellerRef.current) bestsellerRef.current.scrollBy({ left: dir === "left" ? -220 : 220, behavior: "smooth" });
   };
 
-  /* ── LOGIN SCREEN WITH OTP ── */
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-5" style={{ background: secondary }}>
-        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: `radial-gradient(circle at 1px 1px, white 1px, transparent 0)`, backgroundSize: '24px 24px' }} />
-        <div className="relative bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl animate-scaleIn">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 rounded-2xl mx-auto mb-5 overflow-hidden shadow-lg ring-2 ring-gray-100">
-              <img src={shop.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=200&h=200&fit=crop"} alt={shop.name} className="w-full h-full object-cover" />
-            </div>
-            <h1 className="text-xl font-black" style={{ color: secondary }}>{shop.name}</h1>
-            <p className="text-gray-400 mt-2 text-xs">
-              {otpSent ? "کد تایید ارسال شده را وارد کنید" : "شماره موبایل خود را وارد کنید"}
-            </p>
-          </div>
-
-          {otpError && (
-            <div className="bg-red-50 text-red-500 p-3 rounded-xl text-xs text-center mb-4 font-bold">{otpError}</div>
-          )}
-
-          {!otpSent ? (
-            <div className="space-y-3">
-              <input
-                type="tel"
-                placeholder="09123456789"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-4 py-3.5 rounded-xl bg-gray-50 border border-gray-100 text-center text-base tracking-[0.15em] focus:ring-2 transition-all"
-                style={{ direction: "ltr", "--tw-ring-color": primary } as any}
-              />
-              <button
-                onClick={sendOTP}
-                disabled={loginLoading}
-                className="w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all hover:shadow-lg disabled:opacity-50"
-                style={{ background: primary }}
-              >
-                {loginLoading ? "در حال ارسال..." : "دریافت کد تایید"}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-gray-400">{phone}</span>
-                <button onClick={() => { setOtpSent(false); setOtpCode(""); }} className="text-xs font-bold" style={{ color: primary }}>
-                  تغییر شماره
-                </button>
-              </div>
-              <input
-                type="text"
-                placeholder="کد ۶ رقمی"
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="w-full px-4 py-3.5 rounded-xl bg-gray-50 border border-gray-100 text-center text-2xl tracking-[0.5em] font-bold focus:ring-2 transition-all"
-                style={{ direction: "ltr", "--tw-ring-color": primary } as any}
-                maxLength={6}
-              />
-              <button
-                onClick={verifyOTP}
-                disabled={loginLoading || otpCode.length < 4}
-                className="w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all hover:shadow-lg disabled:opacity-50"
-                style={{ background: primary }}
-              >
-                {loginLoading ? "در حال بررسی..." : "تایید و ورود"}
-              </button>
-              <div className="text-center">
-                {countdown > 0 ? (
-                  <span className="text-xs text-gray-400">
-                    ارسال مجدد تا {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, "0")}
-                  </span>
-                ) : (
-                  <button onClick={sendOTP} className="text-xs font-bold" style={{ color: primary }}>
-                    ارسال مجدد کد
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   /* ── ORDER SUCCESS ── */
   if (orderSuccess) {
@@ -376,6 +314,94 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] pb-[72px]">
+      {/* LOGIN MODAL */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-5 animate-fadeIn">
+          <div className="relative bg-white rounded-3xl p-7 w-full max-w-sm shadow-2xl animate-scaleIn">
+            <button
+              onClick={() => setShowLoginModal(false)}
+              className="absolute top-4 left-4 w-8 h-8 rounded-xl bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-gray-100"
+            >
+              {Icons.close}
+            </button>
+            <div className="text-center mb-6">
+              <div className="w-14 h-14 rounded-2xl mx-auto mb-3 overflow-hidden shadow-lg ring-2 ring-gray-100">
+                <img src={shop.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=200&h=200&fit=crop"} alt={shop.name} className="w-full h-full object-cover" />
+              </div>
+              <h1 className="text-lg font-black" style={{ color: secondary }}>{shop.name}</h1>
+              <p className="text-gray-400 mt-1 text-xs">
+                {otpSent ? "کد تایید ارسال شده را وارد کنید" : "برای دسترسی و ثبت سفارش شماره موبایل خود را وارد کنید"}
+              </p>
+            </div>
+
+            {otpError && (
+              <div className="bg-red-50 text-red-500 p-3 rounded-xl text-xs text-center mb-4 font-bold">{otpError}</div>
+            )}
+
+            {!otpSent ? (
+              <div className="space-y-3">
+                <input
+                  type="tel"
+                  placeholder="09123456789"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-4 py-3.5 rounded-xl bg-gray-50 border border-gray-100 text-center text-base tracking-[0.15em] focus:ring-2 transition-all"
+                  style={{ direction: "ltr", "--tw-ring-color": primary } as any}
+                />
+                <button
+                  onClick={sendOTP}
+                  disabled={loginLoading}
+                  className="w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all hover:shadow-lg disabled:opacity-50"
+                  style={{ background: primary }}
+                >
+                  {loginLoading ? "در حال ارسال..." : "دریافت کد تایید"}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-gray-400">{phone}</span>
+                  <button onClick={() => { setOtpSent(false); setOtpCode(""); }} className="text-xs font-bold" style={{ color: primary }}>
+                    تغییر شماره
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="کد ۶ رقمی"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="w-full px-4 py-3.5 rounded-xl bg-gray-50 border border-gray-100 text-center text-2xl tracking-[0.5em] font-bold focus:ring-2 transition-all"
+                  style={{ direction: "ltr", "--tw-ring-color": primary } as any}
+                  maxLength={6}
+                />
+                <button
+                  onClick={async () => {
+                    await verifyOTP();
+                    setShowLoginModal(false);
+                  }}
+                  disabled={loginLoading || otpCode.length < 4}
+                  className="w-full py-3.5 rounded-xl text-white font-bold text-sm transition-all hover:shadow-lg disabled:opacity-50"
+                  style={{ background: primary }}
+                >
+                  {loginLoading ? "در حال بررسی..." : "تایید و ورود"}
+                </button>
+                <div className="text-center">
+                  {countdown > 0 ? (
+                    <span className="text-xs text-gray-400">
+                      ارسال مجدد تا {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, "0")}
+                    </span>
+                  ) : (
+                    <button onClick={sendOTP} className="text-xs font-bold" style={{ color: primary }}>
+                      ارسال مجدد کد
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Cart FAB */}
       {cart.length > 0 && activeTab === "store" && !showCart && !showCheckout && (
         <button onClick={() => setShowCart(true)}
@@ -459,20 +485,25 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {products.map((p, idx) => (
-                <div key={p.id} className="bg-white rounded-2xl overflow-hidden shadow-sm card-hover animate-slideUp" style={{ animationDelay: `${idx * 40}ms` }}>
-                  <div className="aspect-square overflow-hidden relative">
-                    <img src={p.image || "https://via.placeholder.com/200"} alt={p.name} className="w-full h-full object-cover" />
-                    {p.isBestseller && (<span className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[10px] text-white font-bold" style={{ background: primary }}>پرفروش</span>)}
-                  </div>
-                  <div className="p-3">
-                    <h3 className="font-bold text-xs truncate" style={{ color: secondary }}>{p.name}</h3>
-                    <p className="text-[11px] text-gray-400 mt-1 line-clamp-1">{p.description}</p>
-                    <p className="text-xs font-black mt-2" style={{ color: primary }}>{formatPrice(p.price)}</p>
-                    <button onClick={() => addToCart(p)} className="w-full mt-2 py-2 rounded-xl text-white text-xs font-bold transition-all hover:opacity-90" style={{ background: primary }}>افزودن به سبد</button>
+                <div key={p.id} className="bg-white rounded-2xl overflow-hidden shadow-sm card-hover animate-slideUp flex flex-col justify-between" style={{ animationDelay: `${idx * 40}ms` }}>
+                  <a href={`/store/${shop.slug}/product/${p.id}`} className="block">
+                    <div className="aspect-square overflow-hidden relative">
+                      <img src={p.image || "https://via.placeholder.com/200"} alt={p.name} className="w-full h-full object-cover" />
+                      {p.isBestseller && (<span className="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[10px] text-white font-bold" style={{ background: primary }}>پرفروش</span>)}
+                    </div>
+                    <div className="p-3 pb-1">
+                      <h3 className="font-bold text-xs truncate" style={{ color: secondary }}>{p.name}</h3>
+                      <p className="text-[11px] text-gray-400 mt-1 line-clamp-1">{p.description}</p>
+                      <p className="text-xs font-black mt-2" style={{ color: primary }}>{formatPrice(p.price)}</p>
+                    </div>
+                  </a>
+                  <div className="p-3 pt-1">
+                    <button onClick={() => addToCart(p)} className="w-full py-2 rounded-xl text-white text-xs font-bold transition-all hover:opacity-90" style={{ background: primary }}>افزودن به سبد</button>
                   </div>
                 </div>
               ))}
             </div>
+
           </div>
 
           {/* Bottom Banners */}
@@ -521,7 +552,13 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
                 </div>
                 {discountMessage && <p className="text-[11px] text-center mb-2 text-white/80">{discountMessage}</p>}
                 <div className="border-t border-white/20 pt-3 mt-1 flex justify-between"><span className="font-bold text-sm">مبلغ نهایی</span><span className="font-black">{formatPrice(discountedTotal)}</span></div>
-                <button onClick={() => setShowCheckout(true)} className="w-full mt-4 py-3 rounded-xl bg-white font-bold text-sm" style={{ color: primary }}>تکمیل خرید</button>
+                <button onClick={() => {
+                  if (!isLoggedIn) {
+                    setShowLoginModal(true);
+                  } else {
+                    setShowCheckout(true);
+                  }
+                }} className="w-full mt-4 py-3 rounded-xl bg-white font-bold text-sm" style={{ color: primary }}>تکمیل خرید</button>
               </div>
             </div>
           )}
@@ -562,19 +599,51 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
       {activeTab === "profile" && (
         <div className="animate-fadeIn p-4">
           <h2 className="text-base font-black mb-6" style={{ color: secondary }}>پروفایل</h2>
-          <div className="bg-white rounded-2xl p-5 space-y-4">
-            <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">شماره موبایل</label><input type="text" value={customer?.phone || ""} disabled className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm text-gray-400" style={{ direction: "ltr" }} /></div>
-            <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">نام</label><input type="text" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} placeholder="نام و نام خانوادگی" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm focus:ring-2 transition-all" style={{ "--tw-ring-color": primary } as any} /></div>
-            <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">کدپستی</label><input inputMode="numeric" maxLength={10} value={checkoutForm.postalCode} onChange={(e) => setCheckoutForm({ ...checkoutForm, postalCode: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="۱۰ رقم کدپستی" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm" dir="ltr" /></div>
-            <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">آدرس</label><textarea value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} placeholder="آدرس خود را وارد کنید" rows={3} className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm resize-none focus:ring-2 transition-all" style={{ "--tw-ring-color": primary } as any} /></div>
-            <button onClick={updateProfile} disabled={loading} className="w-full py-3 rounded-xl text-white font-bold text-sm" style={{ background: primary }}>{loading ? "در حال ذخیره..." : "ذخیره تغییرات"}</button>
-            <button onClick={logout} className="w-full py-3 rounded-xl border border-gray-200 text-gray-400 font-bold text-sm flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors">{Icons.logout}<span>خروج از حساب</span></button>
-          </div>
+          {!isLoggedIn ? (
+            <div className="bg-white rounded-2xl p-8 text-center shadow-sm">
+              <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4 text-gray-400">
+                {Icons.user}
+              </div>
+              <h3 className="font-bold text-sm mb-2" style={{ color: secondary }}>ورود به حساب کاربری</h3>
+              <p className="text-xs text-gray-400 mb-6">برای مشاهده و ویرایش پروفایل ابتدا با شماره موبایل خود وارد شوید.</p>
+              <button onClick={() => setShowLoginModal(true)} className="px-8 py-3 rounded-xl text-white font-bold text-sm" style={{ background: primary }}>
+                ورود / ثبت‌نام با شماره موبایل
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl p-5 space-y-4">
+              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">شماره موبایل</label><input type="text" value={customer?.phone || ""} disabled className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm text-gray-400" style={{ direction: "ltr" }} /></div>
+              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">نام</label><input type="text" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} placeholder="نام و نام خانوادگی" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm focus:ring-2 transition-all" style={{ "--tw-ring-color": primary } as any} /></div>
+              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">کدپستی</label><input inputMode="numeric" maxLength={10} value={checkoutForm.postalCode} onChange={(e) => setCheckoutForm({ ...checkoutForm, postalCode: e.target.value.replace(/\D/g, "").slice(0, 10) })} placeholder="۱۰ رقم کدپستی" className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm" dir="ltr" /></div>
+              <div><label className="block text-[11px] font-bold mb-1.5 text-gray-400">آدرس</label><textarea value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} placeholder="آدرس خود را وارد کنید" rows={3} className="w-full px-4 py-3 rounded-xl bg-gray-50 border border-gray-100 text-sm resize-none focus:ring-2 transition-all" style={{ "--tw-ring-color": primary } as any} /></div>
+              <button onClick={updateProfile} disabled={loading} className="w-full py-3 rounded-xl text-white font-bold text-sm" style={{ background: primary }}>{loading ? "در حال ذخیره..." : "ذخیره تغییرات"}</button>
+              <button onClick={logout} className="w-full py-3 rounded-xl border border-gray-200 text-gray-400 font-bold text-sm flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors">{Icons.logout}<span>خروج از حساب</span></button>
+            </div>
+          )}
         </div>
       )}
 
       {/* ORDERS TAB */}
-      {activeTab === "orders" && <OrdersTab orders={orders} loadOrders={loadOrders} primary={primary} secondary={secondary} />}
+      {activeTab === "orders" && (
+        !isLoggedIn ? (
+          <div className="animate-fadeIn p-4">
+            <h2 className="text-base font-black mb-5" style={{ color: secondary }}>سفارش‌ها</h2>
+            <div className="bg-white rounded-2xl p-8 text-center shadow-sm">
+              <div className="w-16 h-16 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4 text-gray-400">
+                {Icons.orders}
+              </div>
+              <h3 className="font-bold text-sm mb-2" style={{ color: secondary }}>پیگیری و مشاهده سفارش‌ها</h3>
+              <p className="text-xs text-gray-400 mb-6">جهت مشاهده تاریخچه و وضعیت سفارش‌های خود وارد شوید.</p>
+              <button onClick={() => setShowLoginModal(true)} className="px-8 py-3 rounded-xl text-white font-bold text-sm" style={{ background: primary }}>
+                ورود با شماره موبایل
+              </button>
+            </div>
+          </div>
+        ) : (
+          <OrdersTab orders={orders} loadOrders={loadOrders} primary={primary} secondary={secondary} />
+        )
+      )}
+
 
       {/* MORE TAB */}
       {activeTab === "more" && (
@@ -637,7 +706,7 @@ export default function StoreClient({ shop, products, bestsellers, sliderBanners
 }
 
 function OrdersTab({ orders, loadOrders, primary, secondary }: { orders: any[]; loadOrders: () => void; primary: string; secondary: string }) {
-  useEffect(() => { loadOrders(); }, []);
+  useEffect(() => { loadOrders(); }, [loadOrders]);
   const statusLabels: Record<string, { label: string; color: string }> = { pending: { label: "در انتظار", color: "#FFA000" }, processing: { label: "پردازش", color: "#1976D2" }, shipped: { label: "ارسال شده", color: "#4CAF50" }, delivered: { label: "تحویل شده", color: "#2E7D32" } };
   return (
     <div className="animate-fadeIn p-4">

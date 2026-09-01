@@ -12,6 +12,8 @@ async function ensureSchema() {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_postal_code VARCHAR(10);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending';
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_link TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();
+      UPDATE orders SET created_at = NOW() WHERE created_at IS NULL;
     `);
   } finally { c.release(); }
 }
@@ -94,6 +96,7 @@ export async function POST(req: NextRequest) {
       commissionAmount,
       items: body.items,
       status: "pending",
+      createdAt: new Date(),
     })
     .returning();
 

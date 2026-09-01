@@ -1,0 +1,6 @@
+{
+  "name": "AKMA Store",
+  "description": "فروشگاه اینترنتی محصولات آکما و پنل اختصاصی فروشندگان و مدیریت",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

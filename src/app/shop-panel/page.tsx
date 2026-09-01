@@ -22,7 +22,7 @@ export default function ShopPanelPage() {
     loadData(); 
   }, []);
 
-  const loadData = async () => {
+  async function loadData() {
     try {
       const res = await fetch("/api/shop/dashboard", {
         credentials: "include", // Important for cookies
@@ -56,7 +56,7 @@ export default function ShopPanelPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   const loadSupport = async () => { const r = await fetch("/api/support", {credentials:"include"}); if(r.ok) setSupport(await r.json()); };
   const sendReply = async (ticketId:number) => { const message=reply[ticketId]?.trim(); if(!message)return; await fetch("/api/support",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticketId,message}),credentials:"include"}); setReply({...reply,[ticketId]:""}); loadSupport(); };

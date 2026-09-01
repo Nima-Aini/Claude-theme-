@@ -1,24 +1,273 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { Pool, PoolClient, QueryResult } from "pg";
+import { newDb } from "pg-mem";
+import * as bcryptjs from "bcryptjs";
 
 const databaseUrl = process.env.DATABASE_URL;
 
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required");
+interface GlobalDbState {
+  pool?: Pool;
+  db?: any;
+  initialized?: boolean;
 }
 
 const globalForDb = globalThis as typeof globalThis & {
-  __arenaNextJsPostgresqlPool?: Pool;
+  __arenaNextJsDbState?: GlobalDbState;
 };
 
-export const pool =
-  globalForDb.__arenaNextJsPostgresqlPool ??
-  new Pool({
-    connectionString: databaseUrl,
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForDb.__arenaNextJsPostgresqlPool = pool;
+if (!globalForDb.__arenaNextJsDbState) {
+  globalForDb.__arenaNextJsDbState = {};
 }
 
+function createInMemoryPool(): Pool {
+  const mem = newDb();
+  
+  // Register necessary pg-mem functions
+  mem.public.registerFunction({
+    name: "now",
+    implementation: () => new Date(),
+  });
+  mem.public.registerFunction({
+    name: "current_timestamp",
+    implementation: () => new Date(),
+  });
+
+  const { Pool: MemPool } = mem.adapters.createPg();
+  const poolInstance = new MemPool() as unknown as Pool;
+
+  // Initialize schema & seeds synchronously or immediately
+  initInMemoryDb(poolInstance).catch((err) => {
+    console.error("Error initializing in-memory DB:", err);
+  });
+
+  return poolInstance;
+}
+
+async function initInMemoryDb(poolInstance: Pool) {
+  const client = await poolInstance.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS site_settings (
+        id SERIAL PRIMARY KEY,
+        key VARCHAR(255) NOT NULL UNIQUE,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS products (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        price INTEGER NOT NULL,
+        image TEXT,
+        images JSONB,
+        video_url TEXT,
+        is_bestseller BOOLEAN DEFAULT false,
+        stock INTEGER DEFAULT 100,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS shops (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        slug VARCHAR(255) NOT NULL UNIQUE,
+        image TEXT,
+        banner_image TEXT,
+        username VARCHAR(255) NOT NULL UNIQUE,
+        phone VARCHAR(20),
+        password VARCHAR(255) NOT NULL,
+        commission_rate INTEGER DEFAULT 10,
+        total_earnings INTEGER DEFAULT 0,
+        paid_earnings INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS customers (
+        id SERIAL PRIMARY KEY,
+        phone VARCHAR(20) NOT NULL UNIQUE,
+        name VARCHAR(255),
+        address TEXT,
+        postal_code VARCHAR(10),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS orders (
+        id SERIAL PRIMARY KEY,
+        customer_id INTEGER NOT NULL,
+        shop_id INTEGER NOT NULL,
+        customer_name VARCHAR(255) NOT NULL,
+        customer_phone VARCHAR(20) NOT NULL,
+        customer_address TEXT NOT NULL,
+        shipping_method VARCHAR(50) NOT NULL,
+        total_amount INTEGER NOT NULL,
+        commission_amount INTEGER DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'pending',
+        tracking_link TEXT,
+        customer_postal_code VARCHAR(10),
+        items JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS admins (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(255) NOT NULL UNIQUE,
+        phone VARCHAR(20),
+        password VARCHAR(255) NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS payouts (
+        id SERIAL PRIMARY KEY,
+        shop_id INTEGER NOT NULL,
+        amount INTEGER NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS payout_requests (
+        id SERIAL PRIMARY KEY,
+        shop_id INTEGER NOT NULL,
+        amount INTEGER NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS slider_banners (
+        id SERIAL PRIMARY KEY,
+        image TEXT NOT NULL,
+        sort_order INTEGER DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS bottom_banners (
+        id SERIAL PRIMARY KEY,
+        image TEXT NOT NULL,
+        sort_order INTEGER DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS discount_codes (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(50) NOT NULL UNIQUE,
+        percentage INTEGER NOT NULL DEFAULT 0,
+        type VARCHAR(20) NOT NULL DEFAULT 'percentage',
+        value INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN DEFAULT true,
+        is_public BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS otp_codes (
+        id SERIAL PRIMARY KEY,
+        phone VARCHAR(20) NOT NULL,
+        code VARCHAR(6) NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        verified BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS support_tickets (
+        id SERIAL PRIMARY KEY,
+        customer_id INTEGER,
+        shop_id INTEGER,
+        product_id INTEGER,
+        subject VARCHAR(255) NOT NULL DEFAULT 'پشتیبانی',
+        status VARCHAR(30) NOT NULL DEFAULT 'open',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS support_messages (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL,
+        sender_type VARCHAR(20) NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS customer_shop_logins (
+        id SERIAL PRIMARY KEY,
+        customer_id INTEGER NOT NULL,
+        shop_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Seed admin accounts
+    const adminPassHash12 = await bcryptjs.hash("Akma!2026#Nima@Secure", 12);
+    const legacyPassHash = await bcryptjs.hash("admin123", 10);
+    await client.query("INSERT INTO admins (username, password) VALUES ($1, $2) ON CONFLICT (username) DO NOTHING", ["adminakma", adminPassHash12]);
+    await client.query("INSERT INTO admins (username, password) VALUES ($1, $2) ON CONFLICT (username) DO NOTHING", ["admin", legacyPassHash]);
+
+    // Site settings
+    await client.query(`
+      INSERT INTO site_settings (key, value) VALUES 
+      ('primary_color', '#FF1744'),
+      ('secondary_color', '#37474F'),
+      ('accent_color', '#FF5252'),
+      ('bestseller_title', 'پرفروش‌ترین‌ها 🔥')
+      ON CONFLICT (key) DO NOTHING
+    `);
+
+    // Products
+    const sampleProducts = [
+      { name: "کرم مرطوب‌کننده آکما", desc: "کرم مرطوب‌کننده با فرمول پیشرفته مناسب انواع پوست", price: 350000, img: "https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=400&h=400&fit=crop", bestseller: true },
+      { name: "سرم ویتامین C آکما", desc: "سرم روشن‌کننده و ضد لک با ویتامین C خالص", price: 480000, img: "https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=400&h=400&fit=crop", bestseller: true },
+      { name: "ضد آفتاب آکما SPF50", desc: "ضد آفتاب با محافظت بالا مناسب استفاده روزانه", price: 290000, img: "https://images.unsplash.com/photo-1556228720-195a672e8a03?w=400&h=400&fit=crop", bestseller: true },
+      { name: "شامپو تقویتی آکما", desc: "شامپو تقویت‌کننده مو با عصاره گیاهان طبیعی", price: 220000, img: "https://images.unsplash.com/photo-1585751119414-ef2636f8aede?w=400&h=400&fit=crop", bestseller: false },
+      { name: "ماسک صورت آکما", desc: "ماسک تغذیه‌کننده و آبرسان با عصاره آلوئه‌ورا", price: 180000, img: "https://images.unsplash.com/photo-1596755389378-c31d21fd1273?w=400&h=400&fit=crop", bestseller: true },
+      { name: "لوسیون بدن آکما", desc: "لوسیون بدن نرم‌کننده و معطر با رایحه گل رز", price: 260000, img: "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=400&h=400&fit=crop", bestseller: false },
+      { name: "کرم دور چشم آکما", desc: "کرم ضد چروک و تیرگی دور چشم با فرمول حرفه‌ای", price: 420000, img: "https://images.unsplash.com/photo-1570194065650-d99fb4d8a609?w=400&h=400&fit=crop", bestseller: false },
+      { name: "تونر پاک‌کننده آکما", desc: "تونر پاک‌کننده و متعادل‌کننده PH پوست", price: 195000, img: "https://images.unsplash.com/photo-1611930022073-b7a4ba5fcccd?w=400&h=400&fit=crop", bestseller: true }
+    ];
+
+    for (const p of sampleProducts) {
+      await client.query(
+        "INSERT INTO products (name, description, price, image, is_bestseller) VALUES ($1, $2, $3, $4, $5)",
+        [p.name, p.desc, p.price, p.img, p.bestseller]
+      );
+    }
+
+    // Shops
+    const shop1Pass = await bcryptjs.hash("shop123", 10);
+    const shop2Pass = await bcryptjs.hash("shop456", 10);
+    const shop3Pass = await bcryptjs.hash("shop789", 10);
+
+    await client.query(
+      "INSERT INTO shops (name, slug, image, banner_image, username, password, commission_rate) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (slug) DO NOTHING",
+      ["فروشگاه زیبایی سارا", "sara-beauty", "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800&h=400&fit=crop", "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=1200&h=400&fit=crop", "sara", shop1Pass, 15]
+    );
+    await client.query(
+      "INSERT INTO shops (name, slug, image, banner_image, username, password, commission_rate) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (slug) DO NOTHING",
+      ["فروشگاه آرایشی مهسا", "mahsa-cosmetics", "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=800&h=400&fit=crop", "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=1200&h=400&fit=crop", "mahsa", shop2Pass, 12]
+    );
+    await client.query(
+      "INSERT INTO shops (name, slug, image, banner_image, username, password, commission_rate) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (slug) DO NOTHING",
+      ["بوتیک رز", "rose-boutique", "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&h=400&fit=crop", "https://images.unsplash.com/photo-1526045478516-99145907023c?w=1200&h=400&fit=crop", "rose", shop3Pass, 10]
+    );
+
+    // Default banners
+    await client.query(
+      "INSERT INTO slider_banners (image, sort_order) VALUES ($1, 1), ($2, 2)",
+      [
+        "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=1200&h=400&fit=crop",
+        "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=1200&h=400&fit=crop",
+      ]
+    );
+    await client.query(
+      "INSERT INTO bottom_banners (image, sort_order) VALUES ($1, 1)",
+      ["https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=1200&h=300&fit=crop"]
+    );
+
+    // Default discounts
+    await client.query(
+      "INSERT INTO discount_codes (code, percentage, type, value, is_active, is_public) VALUES ($1, 10, 'percentage', 10, true, true)",
+      ["AKMA10"]
+    );
+  } finally {
+    client.release();
+  }
+}
+
+let pool: Pool;
+
+if (globalForDb.__arenaNextJsDbState?.pool) {
+  pool = globalForDb.__arenaNextJsDbState.pool;
+} else if (databaseUrl) {
+  try {
+    pool = new Pool({ connectionString: databaseUrl });
+  } catch {
+    console.warn("[AI Studio] DATABASE_URL provided but failed to instantiate pool, using in-memory DB fallback");
+    pool = createInMemoryPool();
+  }
+} else {
+  console.info("[AI Studio] No DATABASE_URL provided. Using in-memory PostgreSQL fallback.");
+  pool = createInMemoryPool();
+}
+
+globalForDb.__arenaNextJsDbState.pool = pool;
+
 export const db = drizzle(pool);
+export { pool };
