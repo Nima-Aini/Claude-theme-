@@ -637,68 +637,73 @@ export default function AdminDashboard() {
         )}
 
         {/* Discounts */}
+        {/* Discounts */}
         {activeSection === "discounts" && (
           <div className="animate-fadeIn">
-            <h2 className="text-lg font-black mb-5" style={{ color: secondary }}>مدیریت کدهای تخفیف</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-black" style={{ color: secondary }}>مدیریت کدهای تخفیف</h2>
+                <p className="text-xs text-gray-400 mt-0.5">کدهای تخفیف به صورت اختصاصی ساخته می‌شوند و در سایت به مشتری نشان داده نمی‌شوند. مشتری با وارد کردن کد در سبد خرید از آن استفاده می‌کند.</p>
+              </div>
+            </div>
 
             <div className="bg-white rounded-2xl p-5 mb-5 space-y-3">
-              <p className="text-xs font-bold text-gray-400">افزودن کد تخفیف</p>
+              <p className="text-xs font-bold text-gray-400">افزودن کد تخفیف جدید</p>
               <input
-                placeholder="کد تخفیف (مثلاً AKMA20)"
+                placeholder="کد تخفیف (مثلاً: SPRING1403 یا VIP50)"
                 value={newDiscount.code}
                 onChange={(e) => setNewDiscount({ ...newDiscount, code: e.target.value.toUpperCase() })}
                 className={inputClass} dir="ltr"
               />
-              <select value={newDiscount.type} onChange={(e) => setNewDiscount({ ...newDiscount, type: e.target.value as "percentage" | "amount" })} className={inputClass}>
-                <option value="percentage">درصدی</option>
-                <option value="amount">مبلغی (تومان)</option>
-              </select>
-              <input
-                type="number"
-                min={1}
-                max={newDiscount.type === "percentage" ? 100 : undefined}
-                placeholder={newDiscount.type === "percentage" ? "درصد تخفیف" : "مبلغ تخفیف (تومان)"}
-                value={newDiscount.value || ""}
-                onChange={(e) => setNewDiscount({ ...newDiscount, value: parseInt(e.target.value) || 0 })}
-                className={inputClass}
-              />
-              <label className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 text-xs font-bold cursor-pointer">
-                <input type="checkbox" checked={newDiscount.isPublic} onChange={(e) => setNewDiscount({ ...newDiscount, isPublic: e.target.checked })} />
-                نمایش این کد در بخش «بیشتر» مشتری
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <select value={newDiscount.type} onChange={(e) => setNewDiscount({ ...newDiscount, type: e.target.value as "percentage" | "amount" })} className={inputClass}>
+                  <option value="percentage">درصدی (%)</option>
+                  <option value="amount">مبلغ ثابت (تومان)</option>
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  max={newDiscount.type === "percentage" ? 100 : undefined}
+                  placeholder={newDiscount.type === "percentage" ? "درصد (مثال: ۲۰)" : "مبلغ (مثال: ۵۰۰۰۰)"}
+                  value={newDiscount.value || ""}
+                  onChange={(e) => setNewDiscount({ ...newDiscount, value: parseInt(e.target.value) || 0 })}
+                  className={inputClass}
+                />
+              </div>
               <button onClick={addDiscount} disabled={!newDiscount.code.trim() || !newDiscount.value}
-                className="w-full py-3 rounded-xl text-white text-sm font-bold disabled:opacity-40" style={{ background: primary }}>
-                افزودن کد تخفیف
+                className="w-full py-3 rounded-xl text-white text-sm font-bold disabled:opacity-40 hover:opacity-90 transition-all cursor-pointer" style={{ background: primary }}>
+                افزودن و فعال‌سازی کد تخفیف
               </button>
             </div>
 
             <div className="space-y-2.5">
               {discounts.map((d) => (
-                <div key={d.id} className="bg-white rounded-2xl p-4">
+                <div key={d.id} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-xs">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="font-black text-sm" dir="ltr">{d.code}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-black text-sm font-mono" dir="ltr">{d.code}</p>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                          {d.type === "percentage" ? `${d.value}٪` : `${formatPrice(d.value)}`}
+                        </span>
+                      </div>
                       <p className="text-xs text-gray-400 mt-1">
-                        {d.type === "percentage" ? `${d.value}% تخفیف` : `${formatPrice(d.value)} تخفیف`}
+                        {d.type === "percentage" ? `${d.value}% تخفیف روی کل فاکتور` : `${formatPrice(d.value)} کسر از کل فاکتور`}
                       </p>
                     </div>
-                    <button onClick={() => deleteDiscount(d.id)} className="text-gray-300 hover:text-red-500">{SvgIcons.trash}</button>
+                    <button onClick={() => deleteDiscount(d.id)} className="text-gray-300 hover:text-red-500 transition-colors p-1" title="حذف کد">{SvgIcons.trash}</button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 mt-3">
-                    <button onClick={() => toggleDiscount(d, "isPublic")}
-                      className="py-2 rounded-lg text-[11px] font-bold"
-                      style={{ background: d.isPublic ? `${primary}12` : "#f5f5f5", color: d.isPublic ? primary : "#999" }}>
-                      {d.isPublic ? "✓ نمایش عمومی" : "مخفی از مشتری"}
-                    </button>
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
+                    <span className="text-[11px] text-gray-400">وضعیت کد:</span>
                     <button onClick={() => toggleDiscount(d, "isActive")}
-                      className="py-2 rounded-lg text-[11px] font-bold"
+                      className="px-4 py-1.5 rounded-lg text-xs font-bold transition-all"
                       style={{ background: d.isActive ? "#ecfdf5" : "#f5f5f5", color: d.isActive ? "#059669" : "#999" }}>
-                      {d.isActive ? "فعال" : "غیرفعال"}
+                      {d.isActive ? "✓ فعال برای استفاده" : "✕ غیرفعال"}
                     </button>
                   </div>
                 </div>
               ))}
-              {discounts.length === 0 && <div className="text-center py-16 bg-white rounded-2xl"><p className="text-gray-300 text-sm">کد تخفیفی ثبت نشده</p></div>}
+              {discounts.length === 0 && <div className="text-center py-16 bg-white rounded-2xl"><p className="text-gray-300 text-sm">هنوز کد تخفیفی ثبت نشده است.</p></div>}
             </div>
           </div>
         )}

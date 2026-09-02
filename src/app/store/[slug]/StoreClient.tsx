@@ -703,39 +703,6 @@ export default function StoreClient({
           <h2 className="text-lg font-black mb-4" style={{ color: secondary }}>
             بیشتر
           </h2>
-          {/* Discounts card */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: `${primary}15`, color: primary }}>
-                {Icons.tag}
-              </div>
-              <h3 className="font-black text-sm text-slate-800">تخفیف‌های شگفت‌انگیز</h3>
-            </div>
-            {publicDiscounts.length > 0 ? (
-              <div className="space-y-2">
-                {publicDiscounts.map((d) => (
-                  <button
-                    key={d.id}
-                    onClick={() => {
-                      setDiscountCode(d.code);
-                      setShowCartDrawer(true);
-                    }}
-                    className="w-full flex items-center justify-between p-3.5 rounded-2xl border-2 border-dashed transition-all hover:bg-slate-50 text-right"
-                    style={{ borderColor: `${primary}30` }}
-                  >
-                    <span className="font-mono font-black text-sm" dir="ltr" style={{ color: primary }}>
-                      {d.code}
-                    </span>
-                    <span className="text-xs font-bold text-slate-600">
-                      {d.type === "percentage" ? `${d.value}% تخفیف` : `${formatPrice(d.value)} تخفیف`}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-slate-400">کد تخفیف عمومی فعالی در حال حاضر وجود ندارد.</p>
-            )}
-          </div>
 
           {/* Support card */}
           <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">

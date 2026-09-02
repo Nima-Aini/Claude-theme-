@@ -64,19 +64,9 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Public storefront endpoint: ALWAYS returns ONLY discounts that are explicitly marked as public (isPublic === true) and active (isActive === true).
-  // Hidden discounts (isPublic === false) will NEVER be returned here.
-  const all = await db.select().from(discountCodes).orderBy(desc(discountCodes.createdAt));
-  const publicDiscounts = all
-    .filter((d) => d.isPublic === true && d.isActive === true)
-    .map((d) => ({
-      id: d.id,
-      code: d.code,
-      type: d.type,
-      value: d.value,
-    }));
-
-  return NextResponse.json(publicDiscounts, {
+  // Public storefront: DO NOT expose discount codes publicly.
+  // Customers apply their discount codes manually at checkout.
+  return NextResponse.json([], {
     headers: {
       "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
       Pragma: "no-cache",

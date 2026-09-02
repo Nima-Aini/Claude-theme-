@@ -1,11 +1,11 @@
 // Melli Payamak SMS Service
-const SMS_USERNAME = "9962879248";
-const SMS_PASSWORD = "da2664cd-df2f-4f83-9317-a7f6ebd727a8";
-const SMS_FROM = "50004001628792";
-const BODY_ID = "510394"; // Pattern ID for OTP
-const ORDER_CUSTOMER_BODY_ID = "516984";
-const ORDER_SHOP_BODY_ID = "516985";
-const PAYOUT_BODY_ID = "516987";
+const SMS_USERNAME = process.env.SMS_USERNAME || "9962879248";
+const SMS_PASSWORD = process.env.SMS_PASSWORD || "da2664cd-df2f-4f83-9317-a7f6ebd727a8";
+const SMS_FROM = process.env.SMS_FROM || "50004001628792";
+const BODY_ID = process.env.SMS_OTP_BODY_ID || "510394"; // Pattern ID for OTP
+const ORDER_CUSTOMER_BODY_ID = process.env.SMS_ORDER_CUSTOMER_BODY_ID || "516984";
+const ORDER_SHOP_BODY_ID = process.env.SMS_ORDER_SHOP_BODY_ID || "516985";
+const PAYOUT_BODY_ID = process.env.SMS_PAYOUT_BODY_ID || "516987";
 
 function normalizePhone(phone: string | null | undefined): string | null {
   if (!phone) return null;

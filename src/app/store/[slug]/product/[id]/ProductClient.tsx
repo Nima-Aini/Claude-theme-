@@ -148,14 +148,6 @@ export default function ProductClient({
       .catch(() => {});
   }, []);
 
-  // Public discounts
-  useEffect(() => {
-    fetch(`/api/discounts?t=${Date.now()}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setPublicDiscounts(Array.isArray(data) ? data : []))
-      .catch(() => {});
-  }, []);
-
   // Countdown timer
   useEffect(() => {
     if (countdown <= 0) return;
