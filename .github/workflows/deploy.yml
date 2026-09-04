@@ -1,4 +1,4 @@
-name: Deploy pakhshpanel.ir
+name: Deploy project1
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: pakhshpanel-production
+  group: project1-production
   cancel-in-progress: false
 
 permissions:
@@ -18,47 +18,88 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
       - name: Configure SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           set -Eeuo pipefail
           test -n "$DEPLOY_HOST"
-          test -n "$DEPLOY_PORT"
           test -n "$DEPLOY_SSH_KEY"
-          test -n "$DEPLOY_KNOWN_HOSTS"
+
+          PORT="${DEPLOY_PORT:-22}"
+          echo "DEPLOY_PORT=$PORT" >> "$GITHUB_ENV"
+
           install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/id_ed25519"
-          chmod 600 "$HOME/.ssh/id_ed25519"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+
+          ssh-keyscan -T 10 -p "$PORT" -H "$DEPLOY_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Upload deployment script
+      - name: Deploy to server
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PORT: ${{ env.DEPLOY_PORT }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -Eeuo pipefail
-          scp -P "$DEPLOY_PORT" scripts/deploy.sh \
-            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/project1-deploy.sh"
+          USER_NAME="${DEPLOY_USER:-root}"
 
-      - name: Deploy and verify
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-        run: |
+          ssh \
+            -i "$HOME/.ssh/deploy_key" \
+            -p "$DEPLOY_PORT" \
+            -o BatchMode=yes \
+            "$USER_NAME@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
           set -Eeuo pipefail
-          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash /tmp/project1-deploy.sh \
-            /var/www/project1/Claude-theme--main \
-            project1 \
-            https://pakhshpanel.ir \
-            main"
+
+          export NVM_DIR="$HOME/.nvm"
+          if [ -s "$NVM_DIR/nvm.sh" ]; then
+            . "$NVM_DIR/nvm.sh"
+          fi
+
+          APP_DIR="/var/www/project1/Claude-theme--main"
+          BRANCH="main"
+          PM2_APP="project1"
+
+          cd "$APP_DIR"
+
+          echo "==> Updating source"
+          git fetch --prune origin "$BRANCH"
+          git checkout "$BRANCH"
+          git reset --hard "origin/$BRANCH"
+
+          echo "==> Installing dependencies"
+          npm ci --include=dev --no-audit --no-fund
+
+          echo "==> Building"
+          npm run build
+
+          if [ -f .next/standalone/server.js ]; then
+            echo "==> Preparing standalone build"
+            mkdir -p .next/standalone/.next/static
+            cp -a .next/static/. .next/standalone/.next/static/
+
+            if [ -d public ]; then
+              mkdir -p .next/standalone/public
+              cp -a public/. .next/standalone/public/
+            fi
+          fi
+
+          echo "==> Restarting PM2"
+          pm2 restart "$PM2_APP" --update-env
+          sleep 3
+
+          PID="$(pm2 pid "$PM2_APP" | tail -n 1 | tr -d '[:space:]')"
+          if [ -z "$PID" ] || [ "$PID" = "0" ]; then
+            echo "Deployment failed: $PM2_APP is not running"
+            pm2 logs "$PM2_APP" --lines 100 --nostream || true
+            exit 1
+          fi
+
+          echo "Deployment completed successfully"
+          echo "Commit: $(git rev-parse --short HEAD)"
+          echo "PM2 PID: $PID"
+          REMOTE
