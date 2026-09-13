@@ -6,7 +6,8 @@ export async function GET() {
   if (!session || (session.type !== "admin" && session.role !== "admin")) {
     const response = NextResponse.json({ authenticated: false }, { status: 401 });
     response.cookies.set("admin_token", "", { maxAge: 0, path: "/" });
+    response.headers.set("Cache-Control", "no-store");
     return response;
   }
-  return NextResponse.json({ authenticated: true });
+  return NextResponse.json({ authenticated: true }, { headers: { "Cache-Control": "no-store" } });
 }

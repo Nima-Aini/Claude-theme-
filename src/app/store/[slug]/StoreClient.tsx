@@ -20,10 +20,11 @@ type Shop = {
   slug: string;
   image: string | null;
   bannerImage: string | null;
+  bannerMobileImage: string | null;
   phone?: string | null;
 };
 
-type Banner = { id: number; image: string };
+type Banner = { id: number; image: string; mobileImage?: string | null };
 type PublicDiscount = { id: number; code: string; type: "percentage" | "amount"; value: number };
 
 type Props = {
@@ -424,6 +425,10 @@ export default function StoreClient({
       {/* MAIN TAB CONTENT */}
       {activeTab === "store" && (
         <main className="max-w-xl mx-auto space-y-6 pb-6 animate-fadeIn">
+          {shop.bannerImage && <picture className="block mx-4 mt-4 overflow-hidden rounded-3xl aspect-[2/1] sm:aspect-[8/3] bg-slate-100">
+            {shop.bannerMobileImage && <source media="(max-width: 640px)" srcSet={shop.bannerMobileImage} />}
+            <img src={shop.bannerImage} alt={`بنر ${shop.name}`} className="w-full h-full object-cover" />
+          </picture>}
           {/* SLIDER BANNERS */}
           {sliderBanners.length > 0 && (
             <div className="relative mx-4 mt-4 overflow-hidden rounded-3xl shadow-sm aspect-[16/9] bg-slate-200">
@@ -432,12 +437,10 @@ export default function StoreClient({
                 style={{ transform: `translateX(${currentSlide * 100}%)` }}
               >
                 {sliderBanners.map((banner, i) => (
-                  <img
-                    key={banner.id || i}
-                    src={banner.image}
-                    alt=""
-                    className="w-full h-full object-cover shrink-0"
-                  />
+                  <picture key={banner.id || i} className="block w-full h-full shrink-0">
+                    {banner.mobileImage && <source media="(max-width: 640px)" srcSet={banner.mobileImage} />}
+                    <img src={banner.image} alt="" className="w-full h-full object-cover" />
+                  </picture>
                 ))}
               </div>
               {sliderBanners.length > 1 && (
@@ -567,7 +570,7 @@ export default function StoreClient({
             <div className="px-4 space-y-3">
               {bottomBanners.map((banner, i) => (
                 <div key={banner.id || i} className="rounded-3xl overflow-hidden shadow-sm">
-                  <img src={banner.image} alt="" className="w-full h-auto object-cover" />
+                  <picture><source media="(max-width: 640px)" srcSet={banner.mobileImage || banner.image} /><img src={banner.image} alt="" className="w-full aspect-[16/5] object-cover" /></picture>
                 </div>
               ))}
             </div>

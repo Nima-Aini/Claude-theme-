@@ -1,12 +1,23 @@
 import { db, pool } from "@/db";
-import { products, shops, siteSettings, sliderBanners, bottomBanners } from "@/db/schema";
+import { products, siteSettings, sliderBanners, bottomBanners } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import ProductClient from "./ProductClient";
+import { querySuffix, resolveShopSlug } from "@/lib/shops";
+import type { Metadata } from "next";
+
+type ProductPageProps = { params: Promise<{ slug: string; id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
+  const { slug, id } = await params;
+  const resolved = await resolveShopSlug(slug);
+  if (!resolved) return {};
+  return { alternates: { canonical: `/store/${resolved.shop.slug}/product/${id}` } };
+}
 
 export const dynamic = "force-dynamic";
 
-export default async function ProductPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
+export default async function ProductPage({ params, searchParams }: ProductPageProps) {
   const { slug, id } = await params;
   const c = await pool.connect();
   try {
@@ -20,10 +31,13 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
     c.release();
   }
 
-  const shop = await db.select().from(shops).where(eq(shops.slug, slug)).then((r) => r[0]);
+  const resolved = await resolveShopSlug(slug);
+  if (!resolved) notFound();
+  if (resolved.isAlias) permanentRedirect(`/store/${resolved.shop.slug}/product/${id}${querySuffix(await searchParams)}`);
+  const shop = resolved.shop;
   const product = await db.select().from(products).where(eq(products.id, Number(id))).then((r) => r[0]);
 
-  if (!shop || !product) notFound();
+  if (!product) notFound();
 
   const allProducts = await db.select().from(products).orderBy(desc(products.id));
   const bestsellers = allProducts

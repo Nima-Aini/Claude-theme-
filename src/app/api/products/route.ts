@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { products } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 
 async function ensureSchema() {
   const c = await pool.connect();
@@ -16,11 +16,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   await ensureSchema();
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const body = await req.json();
@@ -45,11 +41,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   await ensureSchema();
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
     const body = await req.json();
@@ -74,11 +66,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await req.json();
   await db.delete(products).where(eq(products.id, id));

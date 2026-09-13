@@ -9,6 +9,7 @@ TEST_PORT="${DEPLOY_TEST_PORT:-3999}"
 BACKUP_ROOT="${DEPLOY_BACKUP_DIR:-/var/backups/project1}"
 
 cd "$APP_DIR"
+export UPLOAD_DIR="${UPLOAD_DIR:-/var/lib/project1/uploads}"
 
 if [[ ! -f .env ]]; then
   echo "Deploy aborted: $APP_DIR/.env is missing"
@@ -55,6 +56,9 @@ git checkout "$BRANCH"
 git merge --ff-only "origin/$BRANCH"
 
 npm ci --no-audit --no-fund
+mkdir -p "$UPLOAD_DIR"
+test -w "$UPLOAD_DIR"
+npm run db:migrate
 npm run build
 
 if [[ ! -f .next/standalone/server.js ]]; then

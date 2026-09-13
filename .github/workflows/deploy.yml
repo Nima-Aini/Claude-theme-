@@ -65,6 +65,7 @@ jobs:
           PM2_APP="project1"
 
           cd "$APP_DIR"
+          export UPLOAD_DIR="${UPLOAD_DIR:-/var/lib/project1/uploads}"
 
           echo "==> Updating source"
           git fetch --prune origin "$BRANCH"
@@ -73,6 +74,11 @@ jobs:
 
           echo "==> Installing dependencies"
           npm ci --include=dev --no-audit --no-fund
+
+          echo "==> Preparing persistent media and database"
+          mkdir -p "$UPLOAD_DIR"
+          test -w "$UPLOAD_DIR"
+          npm run db:migrate
 
           echo "==> Building"
           npm run build

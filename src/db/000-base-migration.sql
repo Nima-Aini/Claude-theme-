@@ -1,0 +1,47 @@
+CREATE TABLE IF NOT EXISTS site_settings (id SERIAL PRIMARY KEY, key VARCHAR(255) NOT NULL UNIQUE, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS products (
+  id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, description TEXT, price INTEGER NOT NULL,
+  image TEXT, images JSONB, video_url TEXT, is_bestseller BOOLEAN DEFAULT false,
+  stock INTEGER DEFAULT 100, created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS shops (
+  id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, slug VARCHAR(255) NOT NULL UNIQUE,
+  secondary_slug VARCHAR(255), image TEXT, banner_image TEXT, banner_mobile_image TEXT,
+  username VARCHAR(255) NOT NULL UNIQUE, phone VARCHAR(20), password VARCHAR(255) NOT NULL,
+  commission_rate INTEGER DEFAULT 10, total_earnings INTEGER DEFAULT 0,
+  paid_earnings INTEGER DEFAULT 0, created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS customers (
+  id SERIAL PRIMARY KEY, phone VARCHAR(20) NOT NULL UNIQUE, name VARCHAR(255), address TEXT,
+  postal_code VARCHAR(10), created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS orders (
+  id SERIAL PRIMARY KEY, customer_id INTEGER NOT NULL, shop_id INTEGER NOT NULL,
+  customer_name VARCHAR(255) NOT NULL, customer_phone VARCHAR(20) NOT NULL,
+  customer_address TEXT NOT NULL, shipping_method VARCHAR(50) NOT NULL, total_amount INTEGER NOT NULL,
+  commission_amount INTEGER DEFAULT 0, status VARCHAR(50) DEFAULT 'pending', tracking_link TEXT,
+  customer_postal_code VARCHAR(10), items JSONB NOT NULL, created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS admins (id SERIAL PRIMARY KEY, username VARCHAR(255) NOT NULL UNIQUE, phone VARCHAR(20), password VARCHAR(255) NOT NULL);
+CREATE TABLE IF NOT EXISTS payouts (id SERIAL PRIMARY KEY, shop_id INTEGER NOT NULL, amount INTEGER NOT NULL, description TEXT, created_at TIMESTAMP DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS payout_requests (id SERIAL PRIMARY KEY, shop_id INTEGER NOT NULL, amount INTEGER NOT NULL, status VARCHAR(50) DEFAULT 'pending', created_at TIMESTAMP DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS slider_banners (id SERIAL PRIMARY KEY, image TEXT NOT NULL, mobile_image TEXT, sort_order INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS bottom_banners (id SERIAL PRIMARY KEY, image TEXT NOT NULL, mobile_image TEXT, sort_order INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS discount_codes (
+  id SERIAL PRIMARY KEY, code VARCHAR(50) NOT NULL UNIQUE, percentage INTEGER NOT NULL DEFAULT 0,
+  type VARCHAR(20) NOT NULL DEFAULT 'percentage', value INTEGER NOT NULL DEFAULT 0,
+  is_active BOOLEAN DEFAULT true, is_public BOOLEAN DEFAULT false, created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id SERIAL PRIMARY KEY, phone VARCHAR(20) NOT NULL, code VARCHAR(6) NOT NULL,
+  expires_at TIMESTAMP NOT NULL, verified BOOLEAN DEFAULT false, created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS support_tickets (
+  id SERIAL PRIMARY KEY, customer_id INTEGER, shop_id INTEGER, product_id INTEGER,
+  subject VARCHAR(255) NOT NULL DEFAULT 'پشتیبانی', status VARCHAR(30) NOT NULL DEFAULT 'open',
+  created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS support_messages (
+  id SERIAL PRIMARY KEY, ticket_id INTEGER NOT NULL, sender_type VARCHAR(20) NOT NULL,
+  message TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW()
+);

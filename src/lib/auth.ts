@@ -1,20 +1,29 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import crypto from "node:crypto";
 
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "akma-store-secret-key-2024-very-long"
-);
+let developmentSecret: Uint8Array | undefined;
+
+export function getJwtSecret(): Uint8Array {
+  const configured = process.env.JWT_SECRET;
+  if (configured && configured.length >= 32) return new TextEncoder().encode(configured);
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET must be configured with at least 32 characters");
+  }
+  developmentSecret ??= crypto.randomBytes(48);
+  return developmentSecret;
+}
 
 export async function signToken(payload: Record<string, unknown>) {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("7d")
-    .sign(SECRET);
+    .sign(getJwtSecret());
 }
 
 export async function verifyToken(token: string) {
   try {
-    const { payload } = await jwtVerify(token, SECRET);
+    const { payload } = await jwtVerify(token, getJwtSecret());
     return payload;
   } catch {
     return null;

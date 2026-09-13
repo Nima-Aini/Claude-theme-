@@ -22,10 +22,11 @@ type Shop = {
   slug: string;
   image: string | null;
   bannerImage: string | null;
+  bannerMobileImage: string | null;
   phone?: string | null;
 };
 
-type Banner = { id: number; image: string };
+type Banner = { id: number; image: string; mobileImage?: string | null };
 type PublicDiscount = { id: number; code: string; type: "percentage" | "amount"; value: number };
 
 type Props = {

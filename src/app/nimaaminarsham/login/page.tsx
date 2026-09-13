@@ -39,11 +39,6 @@ export default function AdminLoginPage() {
     }
   };
 
-  const handleQuickFill = (u: string, p: string) => {
-    setUsername(u);
-    setPassword(p);
-    setError("");
-  };
 
   return (
     <main className="min-h-screen flex items-center justify-center p-5 relative overflow-hidden" style={{ background: "#1e293b" }} dir="rtl">
@@ -126,26 +121,6 @@ export default function AdminLoginPage() {
           </button>
         </div>
 
-        {/* Quick-fill helpers for hassle-free login */}
-        <div className="mt-6 pt-5 border-t border-slate-100">
-          <p className="text-[11px] font-bold text-slate-400 text-center mb-2.5">ورود سریع با اطلاعات پیش‌فرض:</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickFill("adminakma", "Akma!2026#Nima@Secure")}
-              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-[11px] text-slate-700 font-bold transition-all text-center cursor-pointer"
-            >
-              adminakma (جدید)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickFill("admin", "admin123")}
-              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-[11px] text-slate-700 font-bold transition-all text-center cursor-pointer"
-            >
-              admin (قبلی)
-            </button>
-          </div>
-        </div>
       </form>
     </main>
   );

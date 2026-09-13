@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { siteSettings } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 
 async function ensureSettingsSchema() {
   const c = await pool.connect();
@@ -21,11 +21,7 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   await ensureSettingsSchema();
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
   for (const [key, value] of Object.entries(body)) {

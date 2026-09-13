@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { sliderBanners, bottomBanners } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 
 async function ensureBannerSchema() {
   const c = await pool.connect();
-  try { await c.query("CREATE TABLE IF NOT EXISTS slider_banners (id SERIAL PRIMARY KEY, image TEXT NOT NULL, sort_order INTEGER DEFAULT 0); CREATE TABLE IF NOT EXISTS bottom_banners (id SERIAL PRIMARY KEY, image TEXT NOT NULL, sort_order INTEGER DEFAULT 0);"); } finally { c.release(); }
+  try { await c.query("CREATE TABLE IF NOT EXISTS slider_banners (id SERIAL PRIMARY KEY, image TEXT NOT NULL, mobile_image TEXT, sort_order INTEGER DEFAULT 0); CREATE TABLE IF NOT EXISTS bottom_banners (id SERIAL PRIMARY KEY, image TEXT NOT NULL, mobile_image TEXT, sort_order INTEGER DEFAULT 0); ALTER TABLE slider_banners ADD COLUMN IF NOT EXISTS mobile_image TEXT; ALTER TABLE bottom_banners ADD COLUMN IF NOT EXISTS mobile_image TEXT;"); } finally { c.release(); }
 }
 
 export async function GET() {
@@ -18,18 +18,16 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   await ensureBannerSchema();
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { type, image, sortOrder } = await req.json();
+  const { type, image, mobileImage, sortOrder } = await req.json();
+  if (!image) return NextResponse.json({ error: "تصویر دسکتاپ بنر الزامی است" }, { status: 400 });
+  const values = { image: String(image), mobileImage: mobileImage ? String(mobileImage) : null, sortOrder: Number(sortOrder) || 0 };
   if (type === "slider") {
-    const result = await db.insert(sliderBanners).values({ image, sortOrder: sortOrder || 0 }).returning();
+    const result = await db.insert(sliderBanners).values(values).returning();
     return NextResponse.json(result[0]);
   } else {
-    const result = await db.insert(bottomBanners).values({ image, sortOrder: sortOrder || 0 }).returning();
+    const result = await db.insert(bottomBanners).values(values).returning();
     return NextResponse.json(result[0]);
   }
 }
@@ -37,15 +35,12 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   await ensureBannerSchema();
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const { type, id, image, sortOrder } = await req.json();
+    const { type, id, image, mobileImage, sortOrder } = await req.json();
     const numericId = Number(id);
     if (!Number.isInteger(numericId) || !image) return NextResponse.json({ error: "اطلاعات بنر نامعتبر است" }, { status: 400 });
-    const data = { image: String(image), sortOrder: Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 0 };
+    const data = { image: String(image), mobileImage: mobileImage ? String(mobileImage) : null, sortOrder: Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 0 };
     const result = type === "slider"
       ? await db.update(sliderBanners).set(data).where(eq(sliderBanners.id, numericId)).returning()
       : await db.update(bottomBanners).set(data).where(eq(bottomBanners.id, numericId)).returning();
@@ -59,11 +54,7 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   await ensureBannerSchema();
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { type, id } = await req.json();
   if (type === "slider") {

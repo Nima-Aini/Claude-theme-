@@ -1,96 +1,62 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { admins } from "@/db/schema";
-import { eq, or } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { signToken } from "@/lib/auth";
+import { clearLoginFailures, loginRateLimit, recordLoginFailure } from "@/lib/rate-limit";
 import * as bcryptjs from "bcryptjs";
 
-const VALID_MASTER_PASSWORDS = [
-  "Akma!2026#Nima@Secure",
-  "admin123",
-  "admin",
-  "nima123",
-];
+const BCRYPT_HASH = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 
-const VALID_ADMIN_USERNAMES = ["adminakma", "admin", "nima"];
+function normalizeAdminUsername(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function clientAddress(req: NextRequest) {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || req.headers.get("x-real-ip") || "unknown";
+}
 
 export async function POST(req: NextRequest) {
+  const noStore = { "Cache-Control": "no-store" };
   try {
-    const { username, password } = await req.json();
-    const rawUsername = String(username || "").trim();
-    const normalizedUsername = rawUsername.toLowerCase();
-    const rawPassword = String(password || "").trim();
-
-    if (!rawUsername || !rawPassword) {
-      return NextResponse.json({ error: "لطفاً نام کاربری و رمز عبور را وارد کنید" }, { status: 400 });
+    const body = await req.json();
+    const username = normalizeAdminUsername(body.username);
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!username || !password) {
+      return NextResponse.json({ error: "لطفاً نام کاربری و رمز عبور را وارد کنید" }, { status: 400, headers: noStore });
     }
 
-    const isMasterUsername = VALID_ADMIN_USERNAMES.includes(normalizedUsername);
-    const isMasterPassword = VALID_MASTER_PASSWORDS.includes(rawPassword);
-
-    let admin = await db
-      .select({ id: admins.id, username: admins.username, password: admins.password })
-      .from(admins)
-      .where(or(eq(admins.username, rawUsername), eq(admins.username, normalizedUsername)))
-      .then((r) => r[0]);
-
-    let isValid = false;
-
-    // Check master bypass / recovery
-    if (isMasterUsername && isMasterPassword) {
-      isValid = true;
-      const newHash = await bcryptjs.hash(rawPassword, 10);
-      if (!admin) {
-        const [inserted] = await db.insert(admins).values({ username: rawUsername, password: newHash }).returning();
-        admin = inserted;
-      } else {
-        await db.update(admins).set({ password: newHash }).where(eq(admins.id, admin.id));
-      }
-    } else if (admin) {
-      // Check bcrypt or plaintext
-      if (admin.password) {
-        if (admin.password.startsWith("$2a$") || admin.password.startsWith("$2b$") || admin.password.startsWith("$2y$")) {
-          isValid = await bcryptjs.compare(rawPassword, admin.password);
-        } else {
-          isValid = admin.password === rawPassword;
-          if (isValid) {
-            const newHash = await bcryptjs.hash(rawPassword, 10);
-            await db.update(admins).set({ password: newHash }).where(eq(admins.id, admin.id));
-          }
-        }
-      }
+    const rateKey = `${clientAddress(req)}:${username}`;
+    const limit = loginRateLimit(rateKey);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: "تلاش‌های ورود بیش از حد مجاز است؛ کمی بعد دوباره امتحان کنید" },
+        { status: 429, headers: { ...noStore, "Retry-After": String(limit.retryAfter) } },
+      );
     }
 
-    // Fallback: If username is in known list and password is master password
-    if (!isValid && isMasterUsername && isMasterPassword) {
-      isValid = true;
+    const admin = await db.select({ id: admins.id, username: admins.username, password: admins.password })
+      .from(admins).where(sql`lower(${admins.username}) = ${username}`).then((rows) => rows[0]);
+    const valid = Boolean(admin && BCRYPT_HASH.test(admin.password) && await bcryptjs.compare(password, admin.password));
+    if (!valid || !admin) {
+      recordLoginFailure(rateKey);
+      return NextResponse.json({ error: "نام کاربری یا رمز عبور اشتباه است" }, { status: 401, headers: noStore });
     }
 
-    if (!isValid) {
-      return NextResponse.json({ error: "نام کاربری یا رمز عبور اشتباه است" }, { status: 401 });
-    }
-
-    const adminId = admin ? admin.id : 1;
-    const token = await signToken({ id: adminId, type: "admin", role: "admin", username: normalizedUsername });
-
-    const resp = NextResponse.json({
-      success: true,
-      user: { id: adminId, username: normalizedUsername, role: "admin" }
-    }, {
-      headers: { "Cache-Control": "no-store" }
+    clearLoginFailures(rateKey);
+    const token = await signToken({ id: admin.id, type: "admin", role: "admin", username: admin.username });
+    const response = NextResponse.json(
+      { success: true, user: { id: admin.id, username: admin.username, role: "admin" } },
+      { headers: noStore },
+    );
+    response.cookies.set("admin_token", token, {
+      httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, path: "/",
     });
-
-    resp.cookies.set("admin_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7,
-      path: "/",
-    });
-
-    return resp;
+    return response;
   } catch (error) {
-    console.error("Admin login failed:", error);
-    return NextResponse.json({ error: "خطا در ارتباط با سرور مدیریت" }, { status: 500 });
+    console.error("Admin login failed", error instanceof Error ? error.message : "unknown error");
+    return NextResponse.json({ error: "خطا در ارتباط با سرور مدیریت" }, { status: 500, headers: noStore });
   }
 }

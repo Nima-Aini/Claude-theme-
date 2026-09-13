@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { formatJalaliDate, gregorianToJalali, jalaliToGregorian, JALALI_MONTHS, getCurrentJalali } from "@/lib/jalali";
+import ImageUploader from "@/components/admin/ImageUploader";
 
 type Product = { id: number; name: string; description: string | null; price: number; image: string | null; images?: string[] | null; videoUrl?: string | null; isBestseller: boolean | null; stock: number | null };
-type Shop = { id: number; name: string; slug: string; image: string | null; bannerImage: string | null; phone?: string | null; commissionRate: number | null; totalEarnings: number | null; paidEarnings: number | null };
+type Shop = { id: number; name: string; slug: string; secondarySlug?: string | null; image: string | null; bannerImage: string | null; bannerMobileImage?: string | null; phone?: string | null; commissionRate: number | null; totalEarnings: number | null; paidEarnings: number | null };
 type Discount = { id: number; code: string; type: "percentage" | "amount"; value: number; isActive: boolean | null; isPublic: boolean | null; createdAt: string | null };
 type Order = { id: number; customerId: number; shopId: number; customerName: string; customerPhone: string; customerAddress: string; shippingMethod: string; totalAmount: number; commissionAmount: number | null; status: string | null; trackingLink: string | null; items: any; createdAt: string | null };
 type CustomerReportOrder = { id: number; shopId: number; shopName: string; customerName: string; customerPhone: string; customerAddress: string; totalAmount: number; commissionAmount: number; status: string; trackingLink: string | null; shippingMethod: string; items: any; createdAt: string | null };
@@ -39,16 +40,11 @@ export default function AdminDashboard() {
   const [sliderBanners, setSliderBanners] = useState<any[]>([]);
   const [bottomBanners, setBottomBanners] = useState<any[]>([]);
   const [editProduct, setEditProduct] = useState<any>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [uploadingImages, setUploadingImages] = useState(false);
-  const [uploadingShopImage, setUploadingShopImage] = useState(false);
-  const [uploadingShopBanner, setUploadingShopBanner] = useState(false);
-  const [uploadingBannerImage, setUploadingBannerImage] = useState(false);
-  const [uploadingBannerEditImage, setUploadingBannerEditImage] = useState(false);
   const [editShop, setEditShop] = useState<any>(null);
   const [editOrder, setEditOrder] = useState<any>(null);
   const [payoutForm, setPayoutForm] = useState({ shopId: 0, amount: 0, description: "" });
-  const [newBanner, setNewBanner] = useState({ type: "slider", image: "", sortOrder: 0 });
+  const [newBanner, setNewBanner] = useState({ type: "slider", image: "", mobileImage: "", sortOrder: 0 });
+  const [imageEditorBusy, setImageEditorBusy] = useState(false);
   const [editBanner, setEditBanner] = useState<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [supportTickets, setSupportTickets] = useState<any[]>([]);
@@ -117,81 +113,14 @@ export default function AdminDashboard() {
     if (!res.ok) throw new Error(data.error || "عملیات انجام نشد");
     return data;
   };
-  const uploadImageFile = async (file: File, folder: "products" | "shops" | "banners" = "products") => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("folder", folder);
-    const data = await request("/api/uploads", { method: "POST", body: formData });
-    return String(data.url);
-  };
-
-  const handlePrimaryImageUpload = async (file: File | undefined) => {
-    if (!file || !editProduct) return;
-    setUploadingImage(true);
-    try {
-      const url = await uploadImageFile(file, "products");
-      setEditProduct({ ...editProduct, image: url });
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
-  const handleAdditionalImagesUpload = async (files: FileList | null) => {
-    if (!files?.length || !editProduct) return;
-    setUploadingImages(true);
-    try {
-      const uploaded: string[] = [];
-      for (const file of Array.from(files)) {
-        uploaded.push(await uploadImageFile(file, "products"));
-      }
-      const current = Array.isArray(editProduct.images) ? editProduct.images : [];
-      setEditProduct({ ...editProduct, images: [...current, ...uploaded] });
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setUploadingImages(false);
-    }
-  };
-
   const saveProduct = async () => { if (!editProduct) return; try { await request("/api/products", { method: editProduct.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editProduct) }); setEditProduct(null); await loadAll(); } catch (e:any) { alert(e.message); } };
   const deleteProduct = async (id: number) => { if (!confirm("حذف شود؟")) return; try { await request("/api/products", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); await loadAll(); } catch (e:any) { alert(e.message); } };
-  const handleShopImageUpload = async (file: File | undefined, field: "image" | "bannerImage") => {
-    if (!file || !editShop) return;
-    const setUploading = field === "image" ? setUploadingShopImage : setUploadingShopBanner;
-    setUploading(true);
-    try {
-      const url = await uploadImageFile(file, "shops");
-      setEditShop({ ...editShop, [field]: url });
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleBannerImageUpload = async (file: File | undefined, edit = false) => {
-    if (!file) return;
-    const setUploading = edit ? setUploadingBannerEditImage : setUploadingBannerImage;
-    setUploading(true);
-    try {
-      const url = await uploadImageFile(file, "banners");
-      if (edit) setEditBanner((prev: any) => prev ? { ...prev, image: url } : prev);
-      else setNewBanner((prev) => ({ ...prev, image: url }));
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const saveShop = async () => { if (!editShop) return; try { await request("/api/shops", { method: editShop.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editShop) }); setEditShop(null); await loadAll(); } catch (e:any) { alert(e.message); } };
   const updateOrder = async () => { if (!editOrder) return; try { await request("/api/orders", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editOrder.id, status: editOrder.status, trackingLink: editOrder.trackingLink }) }); setEditOrder(null); await loadAll(); } catch (e:any) { alert(e.message); } };
   const processPayout = async () => { try { await request("/api/payouts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payoutForm) }); setPayoutForm({ shopId: 0, amount: 0, description: "" }); await loadAll(); } catch (e:any) { alert(e.message); } };
   const saveSettings = async () => { try { await request("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) }); await loadAll(); alert("تنظیمات ذخیره شد"); } catch (e:any) { alert(e.message); } };
-  const addBanner = async () => { if (!newBanner.image) return; try { await request("/api/banners", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newBanner) }); setNewBanner({ type: "slider", image: "", sortOrder: 0 }); await loadAll(); } catch (e:any) { alert(e.message); } };
-  const editExistingBanner = (type: string, b: any) => setEditBanner({ id: b.id, type, image: b.image, sortOrder: b.sortOrder || 0 });
+  const addBanner = async () => { if (!newBanner.image) return; try { await request("/api/banners", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newBanner) }); setNewBanner({ type: "slider", image: "", mobileImage: "", sortOrder: 0 }); await loadAll(); } catch (e:any) { alert(e.message); } };
+  const editExistingBanner = (type: string, b: any) => setEditBanner({ id: b.id, type, image: b.image, mobileImage: b.mobileImage || "", sortOrder: b.sortOrder || 0 });
   const saveBannerEdit = async () => { if (!editBanner) return; try { await request("/api/banners", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editBanner) }); setEditBanner(null); await loadAll(); } catch (e:any) { alert(e.message); } };
   const deleteBanner = async (type: string, id: number) => { try { await request("/api/banners", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, id }) }); await loadAll(); } catch (e:any) { alert(e.message); } };
   const addDiscount = async () => {
@@ -419,40 +348,19 @@ export default function AdminDashboard() {
                   <input type="number" placeholder="قیمت (تومان)" value={editProduct.price || ""} onChange={(e) => setEditProduct({ ...editProduct, price: parseInt(e.target.value) || 0 })} className={inputClass} style={{ "--tw-ring-color": primary } as any} />
                   <input type="number" placeholder="موجودی" value={editProduct.stock || ""} onChange={(e) => setEditProduct({ ...editProduct, stock: parseInt(e.target.value) || 0 })} className={inputClass} style={{ "--tw-ring-color": primary } as any} />
                 </div>
+                <ImageUploader folder="products" preset="product" label="تصویر اصلی محصول" value={editProduct.image} onChange={(image) => setEditProduct({ ...editProduct, image })} onBusyChange={setImageEditorBusy} />
                 <div className="rounded-xl border border-gray-200 p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-black text-gray-700">تصویر اصلی محصول</p>
-                      <p className="text-[11px] text-gray-400 mt-1">JPG، PNG، WEBP، GIF یا AVIF — حداکثر ۱۰ مگابایت</p>
-                    </div>
-                    <label className="px-3 py-2 rounded-lg text-white text-[11px] font-bold cursor-pointer" style={{ background: primary }}>
-                      {uploadingImage ? "در حال آپلود..." : "انتخاب تصویر"}
-                      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" disabled={uploadingImage} onChange={(e) => { const file = e.target.files?.[0]; void handlePrimaryImageUpload(file); e.currentTarget.value = ""; }} />
-                    </label>
-                  </div>
-                  {editProduct.image && (
-                    <div className="relative w-28 h-28 rounded-xl overflow-hidden bg-gray-50 border border-gray-200">
-                      <img src={editProduct.image} alt="تصویر اصلی محصول" className="w-full h-full object-cover" />
-                    </div>
-                  )}
-                </div>
-                <div className="rounded-xl border border-gray-200 p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-black text-gray-700">تصاویر بیشتر</p>
-                      <p className="text-[11px] text-gray-400 mt-1">می‌توانید چند تصویر را همزمان انتخاب کنید</p>
-                    </div>
-                    <label className="px-3 py-2 rounded-lg text-white text-[11px] font-bold cursor-pointer" style={{ background: primary }}>
-                      {uploadingImages ? "در حال آپلود..." : "انتخاب تصاویر"}
-                      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" multiple disabled={uploadingImages} onChange={(e) => { void handleAdditionalImagesUpload(e.target.files); e.currentTarget.value = ""; }} />
-                    </label>
-                  </div>
+                  <ImageUploader folder="products" preset="product" label="افزودن تصویر به گالری" value={null} onChange={(url) => setEditProduct({ ...editProduct, images: [...(Array.isArray(editProduct.images) ? editProduct.images : []), url] })} onBusyChange={setImageEditorBusy} />
                   {Array.isArray(editProduct.images) && editProduct.images.length > 0 && (
                     <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                       {editProduct.images.map((url: string, index: number) => (
                         <div key={`${url}-${index}`} className="relative aspect-square rounded-lg overflow-hidden bg-gray-50 border border-gray-200">
                           <img src={url} alt={`تصویر ${index + 1}`} className="w-full h-full object-cover" />
                           <button type="button" onClick={() => setEditProduct({ ...editProduct, images: editProduct.images.filter((_: string, i: number) => i !== index) })} className="absolute top-1 left-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs">×</button>
+                          <div className="absolute bottom-1 right-1 flex gap-1">
+                            <button type="button" disabled={index === 0} onClick={() => { const images = [...editProduct.images]; [images[index - 1], images[index]] = [images[index], images[index - 1]]; setEditProduct({ ...editProduct, images }); }} className="w-6 h-6 rounded bg-black/60 text-white text-xs disabled:opacity-30">→</button>
+                            <button type="button" disabled={index === editProduct.images.length - 1} onClick={() => { const images = [...editProduct.images]; [images[index], images[index + 1]] = [images[index + 1], images[index]]; setEditProduct({ ...editProduct, images }); }} className="w-6 h-6 rounded bg-black/60 text-white text-xs disabled:opacity-30">←</button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -464,7 +372,7 @@ export default function AdminDashboard() {
                   <span className="text-xs font-bold text-gray-600">محصول پرفروش</span>
                 </label>
                 <div className="flex gap-2">
-                  <button onClick={saveProduct} className="flex-1 py-2.5 rounded-xl text-white text-xs font-bold" style={{ background: primary }}>ذخیره</button>
+                  <button disabled={imageEditorBusy} onClick={saveProduct} className="flex-1 py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50" style={{ background: primary }}>ذخیره</button>
                   <button onClick={() => setEditProduct(null)} className="px-5 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-500">انصراف</button>
                 </div>
               </div>
@@ -496,7 +404,7 @@ export default function AdminDashboard() {
           <div className="animate-fadeIn">
             <div className="flex justify-between items-center mb-5">
               <h2 className="text-lg font-black" style={{ color: secondary }}>فروشگاه‌ها</h2>
-              <button onClick={() => setEditShop({ name: "", slug: "", image: "", bannerImage: "", phone: "", username: "", password: "", commissionRate: 10 })}
+              <button onClick={() => setEditShop({ name: "", slug: "", secondarySlug: "", image: "", bannerImage: "", bannerMobileImage: "", phone: "", username: "", password: "", commissionRate: 10 })}
                 className="px-4 py-2 rounded-xl text-white text-xs font-bold" style={{ background: primary }}>فروشگاه جدید</button>
             </div>
             {editShop && (
@@ -505,36 +413,21 @@ export default function AdminDashboard() {
                   <input placeholder="نام فروشگاه" value={editShop.name} onChange={(e) => setEditShop({ ...editShop, name: e.target.value })} className={inputClass} style={{ "--tw-ring-color": primary } as any} />
                   <input placeholder="شناسه URL" value={editShop.slug} onChange={(e) => setEditShop({ ...editShop, slug: e.target.value })} className={inputClass} dir="ltr" style={{ "--tw-ring-color": primary } as any} />
                 </div>
+                <input placeholder="شناسه URL ثانویه (اختیاری)" value={editShop.secondarySlug || ""} onChange={(e) => setEditShop({ ...editShop, secondarySlug: e.target.value })} className={inputClass} dir="ltr" />
+                <p className="text-[10px] text-gray-400" dir="ltr">/store/{editShop.slug || "primary-slug"} ← /store/{editShop.secondarySlug || "secondary-slug"}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-dashed border-gray-200 p-3 bg-gray-50">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-xs font-bold text-gray-500">تصویر فروشگاه</span>
-                      <label className="cursor-pointer px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: primary }}>
-                        {uploadingShopImage ? "در حال آپلود..." : "آپلود تصویر"}
-                        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" disabled={uploadingShopImage} onChange={(e) => { void handleShopImageUpload(e.target.files?.[0], "image"); e.currentTarget.value = ""; }} />
-                      </label>
-                    </div>
-                    {editShop.image ? <img src={editShop.image} alt="تصویر فروشگاه" className="w-full h-24 rounded-lg object-cover" /> : <div className="h-24 rounded-lg bg-white flex items-center justify-center text-xs text-gray-400">هنوز تصویری انتخاب نشده</div>}
-                  </div>
-                  <div className="rounded-xl border border-dashed border-gray-200 p-3 bg-gray-50">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-xs font-bold text-gray-500">بنر فروشگاه</span>
-                      <label className="cursor-pointer px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: primary }}>
-                        {uploadingShopBanner ? "در حال آپلود..." : "آپلود بنر"}
-                        <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" disabled={uploadingShopBanner} onChange={(e) => { void handleShopImageUpload(e.target.files?.[0], "bannerImage"); e.currentTarget.value = ""; }} />
-                      </label>
-                    </div>
-                    {editShop.bannerImage ? <img src={editShop.bannerImage} alt="بنر فروشگاه" className="w-full h-24 rounded-lg object-cover" /> : <div className="h-24 rounded-lg bg-white flex items-center justify-center text-xs text-gray-400">هنوز بنری انتخاب نشده</div>}
-                  </div>
+                  <ImageUploader folder="shops" preset="shop" value={editShop.image} onChange={(image) => setEditShop({ ...editShop, image })} onBusyChange={setImageEditorBusy} />
+                  <ImageUploader folder="shops" preset="shopBannerDesktop" value={editShop.bannerImage} onChange={(bannerImage) => setEditShop({ ...editShop, bannerImage })} onBusyChange={setImageEditorBusy} />
                 </div>
+                <ImageUploader folder="shops" preset="shopBannerMobile" value={editShop.bannerMobileImage} onChange={(bannerMobileImage) => setEditShop({ ...editShop, bannerMobileImage })} onBusyChange={setImageEditorBusy} />
                 <input placeholder="شماره تماس فروشگاه برای پیامک" value={editShop.phone || ""} onChange={(e) => setEditShop({ ...editShop, phone: e.target.value.replace(/\D/g, "").slice(0, 20) })} className={inputClass} dir="ltr" />
                 <div className="grid grid-cols-3 gap-3">
-                  <input placeholder="نام کاربری" value={editShop.username} onChange={(e) => setEditShop({ ...editShop, username: e.target.value })} className={inputClass} dir="ltr" style={{ "--tw-ring-color": primary } as any} />
+                  <input placeholder={editShop.id ? "نام کاربری هنگام ویرایش تغییر نمی‌کند" : "نام کاربری"} disabled={Boolean(editShop.id)} value={editShop.username || ""} onChange={(e) => setEditShop({ ...editShop, username: e.target.value })} className={inputClass} dir="ltr" style={{ "--tw-ring-color": primary } as any} />
                   <input type="password" placeholder={editShop.id ? "رمز جدید" : "رمز عبور"} value={editShop.password || ""} onChange={(e) => setEditShop({ ...editShop, password: e.target.value })} className={inputClass} dir="ltr" style={{ "--tw-ring-color": primary } as any} />
                   <input type="number" placeholder="پورسانت %" value={editShop.commissionRate || ""} onChange={(e) => setEditShop({ ...editShop, commissionRate: parseInt(e.target.value) || 0 })} className={inputClass} style={{ "--tw-ring-color": primary } as any} />
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={saveShop} className="flex-1 py-2.5 rounded-xl text-white text-xs font-bold" style={{ background: primary }}>ذخیره</button>
+                  <button disabled={imageEditorBusy} onClick={saveShop} className="flex-1 py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50" style={{ background: primary }}>ذخیره</button>
                   <button onClick={() => setEditShop(null)} className="px-5 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-500">انصراف</button>
                 </div>
               </div>
@@ -735,35 +628,19 @@ export default function AdminDashboard() {
                 <option value="slider">اسلایدر</option>
                 <option value="bottom">بنر پایین</option>
               </select>
-              <div className="rounded-xl border border-dashed border-gray-200 p-3 bg-gray-50">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-xs font-bold text-gray-500">تصویر بنر</span>
-                  <label className="cursor-pointer px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: primary }}>
-                    {uploadingBannerImage ? "در حال آپلود..." : "آپلود تصویر"}
-                    <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" disabled={uploadingBannerImage} onChange={(e) => { void handleBannerImageUpload(e.target.files?.[0]); e.currentTarget.value = ""; }} />
-                  </label>
-                </div>
-                {newBanner.image ? <img src={newBanner.image} alt="پیش‌نمایش بنر" className="w-full h-32 rounded-lg object-cover" /> : <div className="h-32 rounded-lg bg-white flex items-center justify-center text-xs text-gray-400">هنوز تصویری انتخاب نشده</div>}
-              </div>
+              <ImageUploader folder="banners" preset={newBanner.type === "slider" ? "sliderDesktop" : "bottomDesktop"} label="تصویر دسکتاپ" value={newBanner.image} onChange={(image) => setNewBanner({ ...newBanner, image })} onBusyChange={setImageEditorBusy} />
+              <ImageUploader folder="banners" preset={newBanner.type === "slider" ? "sliderMobile" : "bottomMobile"} label="تصویر موبایل (اختیاری)" value={newBanner.mobileImage} onChange={(mobileImage) => setNewBanner({ ...newBanner, mobileImage })} onBusyChange={setImageEditorBusy} />
               <input type="number" placeholder="ترتیب" value={newBanner.sortOrder} onChange={(e) => setNewBanner({ ...newBanner, sortOrder: parseInt(e.target.value) || 0 })} className={inputClass} style={{ "--tw-ring-color": primary } as any} />
-              <button onClick={addBanner} className="w-full py-2.5 rounded-xl text-white text-xs font-bold" style={{ background: primary }}>افزودن</button>
+              <button disabled={imageEditorBusy} onClick={addBanner} className="w-full py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50" style={{ background: primary }}>افزودن</button>
             </div>
             {editBanner && (
               <div className="bg-white rounded-2xl p-5 mb-5 space-y-3">
                 <p className="text-xs font-bold text-gray-400">ویرایش بنر</p>
-                <div className="rounded-xl border border-dashed border-gray-200 p-3 bg-gray-50">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-xs font-bold text-gray-500">تصویر بنر</span>
-                    <label className="cursor-pointer px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: primary }}>
-                      {uploadingBannerEditImage ? "در حال آپلود..." : "جایگزینی تصویر"}
-                      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" className="hidden" disabled={uploadingBannerEditImage} onChange={(e) => { void handleBannerImageUpload(e.target.files?.[0], true); e.currentTarget.value = ""; }} />
-                    </label>
-                  </div>
-                  {editBanner.image ? <img src={editBanner.image} alt="پیش‌نمایش بنر" className="w-full h-32 rounded-lg object-cover" /> : <div className="h-32 rounded-lg bg-white flex items-center justify-center text-xs text-gray-400">هنوز تصویری انتخاب نشده</div>}
-                </div>
+                <ImageUploader folder="banners" preset={editBanner.type === "slider" ? "sliderDesktop" : "bottomDesktop"} label="تصویر دسکتاپ" value={editBanner.image} onChange={(image) => setEditBanner({ ...editBanner, image })} onBusyChange={setImageEditorBusy} />
+                <ImageUploader folder="banners" preset={editBanner.type === "slider" ? "sliderMobile" : "bottomMobile"} label="تصویر موبایل (اختیاری)" value={editBanner.mobileImage} onChange={(mobileImage) => setEditBanner({ ...editBanner, mobileImage })} onBusyChange={setImageEditorBusy} />
                 <input type="number" placeholder="ترتیب" value={editBanner.sortOrder || 0} onChange={(e) => setEditBanner({ ...editBanner, sortOrder: parseInt(e.target.value) || 0 })} className={inputClass} />
                 <div className="flex gap-2">
-                  <button onClick={saveBannerEdit} className="flex-1 py-2.5 rounded-xl text-white text-xs font-bold" style={{ background: primary }}>ذخیره تغییرات</button>
+                  <button disabled={imageEditorBusy} onClick={saveBannerEdit} className="flex-1 py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50" style={{ background: primary }}>ذخیره تغییرات</button>
                   <button onClick={() => setEditBanner(null)} className="px-5 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-500">انصراف</button>
                 </div>
               </div>

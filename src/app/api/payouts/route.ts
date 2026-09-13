@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { payouts, payoutRequests, shops } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin, verifyToken } from "@/lib/auth";
 import { sendPayoutSMS } from "@/lib/sms";
 
 export async function GET(req: NextRequest) {
@@ -59,11 +59,7 @@ export async function POST(req: NextRequest) {
 // Admin processes payout
 export async function PUT(req: NextRequest) {
   const c=await pool.connect(); try { await c.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS phone VARCHAR(20);"); } finally { c.release(); }
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { shopId, amount, description } = await req.json();
   const numericShopId = Number(shopId);

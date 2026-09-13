@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { discountCodes } from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,10 +37,7 @@ async function ensureDiscountSchema() {
 }
 
 async function isAdmin(req: NextRequest) {
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return false;
-  const payload = await verifyToken(token);
-  return !!payload && (payload.type === "admin" || payload.role === "admin");
+  return Boolean(await requireAdmin(req));
 }
 
 export async function GET(req: NextRequest) {

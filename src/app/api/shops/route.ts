@@ -1,85 +1,80 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, pool } from "@/db";
+import { db } from "@/db";
 import { shops } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { verifyToken } from "@/lib/auth";
+import { and, eq, ne, or } from "drizzle-orm";
+import { requireAdmin } from "@/lib/auth";
+import { normalizeShopSlug } from "@/lib/shops";
 import * as bcryptjs from "bcryptjs";
 
 export async function GET() {
-  const c = await pool.connect(); try { await c.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS phone VARCHAR(20);"); } finally { c.release(); }
-  const allShops = await db
-    .select({
-      id: shops.id,
-      name: shops.name,
-      slug: shops.slug,
-      image: shops.image,
-      bannerImage: shops.bannerImage,
-      commissionRate: shops.commissionRate,
-      phone: shops.phone,
-      totalEarnings: shops.totalEarnings,
-      paidEarnings: shops.paidEarnings,
-    })
-    .from(shops);
-  return NextResponse.json(allShops);
+  const rows = await db.select({ id: shops.id, name: shops.name, slug: shops.slug,
+    secondarySlug: shops.secondarySlug, image: shops.image, bannerImage: shops.bannerImage,
+    bannerMobileImage: shops.bannerMobileImage, commissionRate: shops.commissionRate, phone: shops.phone,
+    totalEarnings: shops.totalEarnings, paidEarnings: shops.paidEarnings }).from(shops);
+  return NextResponse.json(rows);
+}
+
+async function slugConflict(primary: string, secondary: string | null, excludedId?: number) {
+  const candidates = secondary ? [primary, secondary] : [primary];
+  for (const candidate of candidates) {
+    const condition = or(eq(shops.slug, candidate), eq(shops.secondarySlug, candidate));
+    const row = await db.select({ id: shops.id }).from(shops)
+      .where(excludedId ? and(condition, ne(shops.id, excludedId)) : condition).then((rows) => rows[0]);
+    if (row) return true;
+  }
+  return false;
 }
 
 export async function POST(req: NextRequest) {
-  const c = await pool.connect(); try { await c.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS phone VARCHAR(20);"); } finally { c.release(); }
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await req.json();
     const name = String(body.name || "").trim();
-    const slug = String(body.slug || "").trim();
-    const username = String(body.username || "").trim();
-    const password = String(body.password || "");
-    if (!name || !slug || !username || !password)
-      return NextResponse.json({ error: "نام، شناسه، نام کاربری و رمز عبور الزامی است" }, { status: 400 });
-    const data = {
-      name, slug, username,
-      image: body.image || null,
-      bannerImage: body.bannerImage || null,
-      phone: body.phone || null,
-      password: await bcryptjs.hash(password, 10),
+    const username = String(body.username || "").trim().toLowerCase();
+    const password = typeof body.password === "string" ? body.password : "";
+    const slug = normalizeShopSlug(body.slug) as string;
+    const secondarySlug = normalizeShopSlug(body.secondarySlug, true);
+    if (!name || !username || password.length < 8) return NextResponse.json({ error: "نام، نام کاربری و رمز حداقل ۸ کاراکتری الزامی است" }, { status: 400 });
+    if (slug === secondarySlug) return NextResponse.json({ error: "شناسه اصلی و ثانویه نباید یکسان باشند" }, { status: 400 });
+    if (await slugConflict(slug, secondarySlug)) return NextResponse.json({ error: "شناسه اصلی یا ثانویه قبلاً استفاده شده است" }, { status: 409 });
+    const [result] = await db.insert(shops).values({ name, username, slug, secondarySlug,
+      image: body.image || null, bannerImage: body.bannerImage || null, bannerMobileImage: body.bannerMobileImage || null,
+      phone: body.phone || null, password: await bcryptjs.hash(password, 12),
       commissionRate: Number.isFinite(Number(body.commissionRate)) ? Number(body.commissionRate) : 10,
-      totalEarnings: 0, paidEarnings: 0,
-    };
-    const result = await db.insert(shops).values(data).returning();
-    return NextResponse.json(result[0]);
-  } catch (error: any) {
-    if (error?.code === "23505") return NextResponse.json({ error: "شناسه یا نام کاربری تکراری است" }, { status: 409 });
-    console.error("POST /api/shops", error);
-    return NextResponse.json({ error: "خطا در افزودن فروشگاه", details: error?.message }, { status: 500 });
+      totalEarnings: 0, paidEarnings: 0 }).returning();
+    return NextResponse.json(result, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("شناسه URL")) return NextResponse.json({ error: error.message }, { status: 400 });
+    const code = (error as { code?: string }).code;
+    if (code === "23505") return NextResponse.json({ error: "شناسه یا نام کاربری تکراری است" }, { status: 409 });
+    console.error("POST /api/shops", error instanceof Error ? error.message : "unknown error");
+    return NextResponse.json({ error: "خطا در افزودن فروشگاه" }, { status: 500 });
   }
 }
 
 export async function PUT(req: NextRequest) {
-  const c = await pool.connect(); try { await c.query("ALTER TABLE shops ADD COLUMN IF NOT EXISTS phone VARCHAR(20);"); } finally { c.release(); }
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || payload.type !== "admin" && payload.role !== "admin")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await req.json();
     const id = Number(body.id);
     if (!Number.isInteger(id)) return NextResponse.json({ error: "شناسه فروشگاه نامعتبر است" }, { status: 400 });
-    const data: Record<string, unknown> = {};
-    for (const key of ["name", "slug", "username", "image", "bannerImage", "phone", "commissionRate"]) {
-      if (body[key] !== undefined) data[key] = key === "commissionRate" ? Number(body[key]) : body[key];
+    const current = await db.select().from(shops).where(eq(shops.id, id)).then((rows) => rows[0]);
+    if (!current) return NextResponse.json({ error: "فروشگاه پیدا نشد" }, { status: 404 });
+    const slug = body.slug === undefined ? current.slug : normalizeShopSlug(body.slug) as string;
+    const secondarySlug = body.secondarySlug === undefined ? current.secondarySlug : normalizeShopSlug(body.secondarySlug, true);
+    if (slug === secondarySlug) return NextResponse.json({ error: "شناسه اصلی و ثانویه نباید یکسان باشند" }, { status: 400 });
+    if (await slugConflict(slug, secondarySlug, id)) return NextResponse.json({ error: "شناسه اصلی یا ثانویه قبلاً استفاده شده است" }, { status: 409 });
+    const data: Record<string, unknown> = { slug, secondarySlug };
+    for (const key of ["name", "image", "bannerImage", "bannerMobileImage", "phone", "commissionRate"]) {
+      if (body[key] !== undefined) data[key] = key === "commissionRate" ? Number(body[key]) : body[key] || null;
     }
-    if (body.password) data.password = await bcryptjs.hash(String(body.password), 10);
-    const result = await db.update(shops).set(data).where(eq(shops.id, id)).returning();
-    if (!result[0]) return NextResponse.json({ error: "فروشگاه پیدا نشد" }, { status: 404 });
-    return NextResponse.json(result[0]);
-  } catch (error: any) {
-    if (error?.code === "23505") return NextResponse.json({ error: "شناسه یا نام کاربری تکراری است" }, { status: 409 });
-    console.error("PUT /api/shops", error);
-    return NextResponse.json({ error: "خطا در ویرایش فروشگاه", details: error?.message }, { status: 500 });
+    if (body.password) data.password = await bcryptjs.hash(String(body.password), 12);
+    const [result] = await db.update(shops).set(data).where(eq(shops.id, id)).returning();
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("شناسه URL")) return NextResponse.json({ error: error.message }, { status: 400 });
+    if ((error as { code?: string }).code === "23505") return NextResponse.json({ error: "شناسه یا نام کاربری تکراری است" }, { status: 409 });
+    console.error("PUT /api/shops", error instanceof Error ? error.message : "unknown error");
+    return NextResponse.json({ error: "خطا در ویرایش فروشگاه" }, { status: 500 });
   }
 }

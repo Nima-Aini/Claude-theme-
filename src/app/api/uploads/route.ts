@@ -1,67 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import crypto from "node:crypto";
+import sharp from "sharp";
 import { requireAdmin } from "@/lib/auth";
+import { saveMedia } from "@/lib/storage/local";
+import { IMAGE_PRESETS, ImagePresetName } from "@/lib/image-presets";
 
 export const runtime = "nodejs";
-
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_TYPES = new Map([
-  ["image/jpeg", ".jpg"],
-  ["image/png", ".png"],
-  ["image/webp", ".webp"],
-  ["image/gif", ".gif"],
-  ["image/avif", ".avif"],
-]);
+const MAX_PIXELS = 40_000_000;
+const FOLDERS = new Set(["products", "shops", "banners"]);
 
 export async function POST(req: NextRequest) {
-  const admin = await requireAdmin(req);
-  if (!admin) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
-    const formData = await req.formData();
-    const file = formData.get("file");
-    const requestedFolder = String(formData.get("folder") || "products");
-    const folder = requestedFolder === "shops" || requestedFolder === "banners" ? requestedFolder : "products";
+    const form = await req.formData();
+    const file = form.get("file");
+    const folder = String(form.get("folder") || "products");
+    const presetName = String(form.get("preset") || "") as ImagePresetName;
+    if (!(file instanceof File)) return NextResponse.json({ error: "فایلی ارسال نشده است" }, { status: 400 });
+    if (!FOLDERS.has(folder)) return NextResponse.json({ error: "دسته‌بندی تصویر نامعتبر است" }, { status: 400 });
+    const preset = IMAGE_PRESETS[presetName];
+    if (!preset) return NextResponse.json({ error: "نسبت تصویر مشخص نشده است" }, { status: 400 });
+    if (!file.size) return NextResponse.json({ error: "فایل تصویر خالی است" }, { status: 400 });
+    if (file.size > MAX_FILE_SIZE) return NextResponse.json({ error: "حجم تصویر نباید بیشتر از ۱۰ مگابایت باشد" }, { status: 413 });
 
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "فایلی برای آپلود ارسال نشده است" }, { status: 400 });
+    const source = Buffer.from(await file.arrayBuffer());
+    const image = sharp(source, { limitInputPixels: MAX_PIXELS, failOn: "error" });
+    const metadata = await image.metadata();
+    if (!metadata.width || !metadata.height || !["jpeg", "png", "webp", "avif"].includes(metadata.format || "")) {
+      return NextResponse.json({ error: "محتوای فایل یک تصویر مجاز نیست" }, { status: 400 });
     }
-
-    if (!ALLOWED_TYPES.has(file.type)) {
-      return NextResponse.json(
-        { error: "فرمت تصویر مجاز نیست. فقط JPG، PNG، WEBP، GIF و AVIF قابل آپلود هستند." },
-        { status: 400 },
-      );
-    }
-
-    if (file.size <= 0) {
-      return NextResponse.json({ error: "فایل تصویر خالی است" }, { status: 400 });
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: "حجم تصویر نباید بیشتر از ۱۰ مگابایت باشد" }, { status: 400 });
-    }
-
-    const extension = ALLOWED_TYPES.get(file.type)!;
-    const filename = `${Date.now()}-${crypto.randomUUID()}${extension}`;
-    const uploadDir = path.join(process.cwd(), "public", "uploads", folder);
-    await mkdir(uploadDir, { recursive: true });
-
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(path.join(uploadDir, filename), buffer, { flag: "wx" });
-
-    return NextResponse.json({
-      url: `/uploads/${folder}/${filename}`,
-      filename,
-      size: file.size,
-      type: file.type,
-    });
+    const output = await image.rotate().resize(preset.width, preset.height, { fit: "cover" }).webp({ quality: 86, smartSubsample: true }).toBuffer();
+    const saved = await saveMedia(folder, output);
+    return NextResponse.json({ ...saved, size: output.length, type: "image/webp", width: preset.width, height: preset.height });
   } catch (error) {
-    console.error("POST /api/uploads", error);
-    return NextResponse.json({ error: "آپلود تصویر انجام نشد" }, { status: 500 });
+    console.error("POST /api/uploads", error instanceof Error ? error.message : "unknown error");
+    return NextResponse.json({ error: "تصویر معتبر نیست یا آپلود انجام نشد" }, { status: 400 });
   }
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { customerShopLogins, customers, orders, shops } from "@/db/schema";
 import { desc, inArray } from "drizzle-orm";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 
 async function ensureSchema() {
   const c = await pool.connect();
@@ -24,12 +24,7 @@ async function ensureSchema() {
 
 export async function GET(req: NextRequest) {
   await ensureSchema();
-  const token = req.cookies.get("admin_token")?.value;
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const payload = await verifyToken(token);
-  if (!payload || (payload.type !== "admin" && payload.role !== "admin")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const param = req.nextUrl.searchParams.get("shopIds") || "all";
   const selectedShopIds = param === "all"

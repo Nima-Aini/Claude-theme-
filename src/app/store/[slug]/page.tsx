@@ -1,25 +1,31 @@
 import { db, pool } from "@/db";
 import { shops, products, siteSettings, sliderBanners, bottomBanners } from "@/db/schema";
-import { eq, asc } from "drizzle-orm";
-import { notFound } from "next/navigation";
+import { asc } from "drizzle-orm";
+import { notFound, permanentRedirect } from "next/navigation";
 import StoreClient from "./StoreClient";
+import { querySuffix, resolveShopSlug } from "@/lib/shops";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = { params: Promise<{ slug: string }> };
+type PageProps = { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-export default async function StorePage({ params }: PageProps) {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const resolved = await resolveShopSlug(slug);
+  if (!resolved) return {};
+  return { title: resolved.shop.name, alternates: { canonical: `/store/${resolved.shop.slug}` } };
+}
+
+export default async function StorePage({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const c = await pool.connect();
   try { await c.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS images JSONB; ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT;"); } finally { c.release(); }
 
-  const shop = await db
-    .select()
-    .from(shops)
-    .where(eq(shops.slug, slug))
-    .then((r) => r[0]);
-
-  if (!shop) notFound();
+  const resolved = await resolveShopSlug(slug);
+  if (!resolved) notFound();
+  if (resolved.isAlias) permanentRedirect(`/store/${resolved.shop.slug}${querySuffix(await searchParams)}`);
+  const shop = resolved.shop;
 
   const allProducts = await db.select().from(products);
   const sliders = await db.select().from(sliderBanners).orderBy(asc(sliderBanners.sortOrder));
@@ -40,6 +46,7 @@ export default async function StorePage({ params }: PageProps) {
         slug: shop.slug,
         image: shop.image,
         bannerImage: shop.bannerImage,
+        bannerMobileImage: shop.bannerMobileImage,
       }}
       products={allProducts.map((p) => ({
         id: p.id,
@@ -63,8 +70,8 @@ export default async function StorePage({ params }: PageProps) {
         isBestseller: p.isBestseller ?? false,
         stock: p.stock ?? 0,
       }))}
-      sliderBanners={sliders.map((s) => ({ id: s.id, image: s.image }))}
-      bottomBanners={bottoms.map((b) => ({ id: b.id, image: b.image }))}
+      sliderBanners={sliders.map((s) => ({ id: s.id, image: s.image, mobileImage: s.mobileImage }))}
+      bottomBanners={bottoms.map((b) => ({ id: b.id, image: b.image, mobileImage: b.mobileImage }))}
       settings={settings}
       bestsellerTitle={bestsellerTitle}
     />

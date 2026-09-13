@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { orders, shops } from "@/db/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { formatJalaliDate, gregorianToJalali, jalaliToGregorian } from "@/lib/jalali";
 import * as XLSX from "xlsx";
 
@@ -41,16 +41,7 @@ export async function GET(req: NextRequest) {
   try {
     await ensureOrdersSchema();
 
-    // Check admin authentication
-    const token = req.cookies.get("admin_token")?.value;
-    if (!token) {
-      return NextResponse.json({ error: "عدم دسترسی: لطفا وارد پنل مدیریت شوید" }, { status: 401 });
-    }
-
-    const payload = await verifyToken(token);
-    if (!payload || (payload.type !== "admin" && payload.role !== "admin")) {
-      return NextResponse.json({ error: "عدم دسترسی مدیر" }, { status: 401 });
-    }
+    if (!await requireAdmin(req)) return NextResponse.json({ error: "عدم دسترسی مدیر" }, { status: 401 });
 
     const searchParams = req.nextUrl.searchParams;
     const fromYear = searchParams.get("fromYear");

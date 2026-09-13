@@ -36,8 +36,10 @@ export const shops = pgTable("shops", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 255 }).notNull().unique(),
+  secondarySlug: varchar("secondary_slug", { length: 255 }).unique(),
   image: text("image"),
   bannerImage: text("banner_image"),
+  bannerMobileImage: text("banner_mobile_image"),
   username: varchar("username", { length: 255 }).notNull().unique(),
   phone: varchar("phone", { length: 20 }),
   password: varchar("password", { length: 255 }).notNull(),
@@ -105,6 +107,7 @@ export const payoutRequests = pgTable("payout_requests", {
 export const sliderBanners = pgTable("slider_banners", {
   id: serial("id").primaryKey(),
   image: text("image").notNull(),
+  mobileImage: text("mobile_image"),
   sortOrder: integer("sort_order").default(0),
 });
 
@@ -112,6 +115,7 @@ export const sliderBanners = pgTable("slider_banners", {
 export const bottomBanners = pgTable("bottom_banners", {
   id: serial("id").primaryKey(),
   image: text("image").notNull(),
+  mobileImage: text("mobile_image"),
   sortOrder: integer("sort_order").default(0),
 });
 
