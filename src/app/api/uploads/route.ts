@@ -7,7 +7,7 @@ import { IMAGE_PRESETS, ImagePresetName } from "@/lib/image-presets";
 export const runtime = "nodejs";
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_PIXELS = 40_000_000;
-const FOLDERS = new Set(["products", "shops", "banners"]);
+const FOLDERS = new Set(["products", "stands", "shops", "banners"]);
 
 export async function POST(req: NextRequest) {
   if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -5,6 +5,7 @@ import { formatJalaliDate, gregorianToJalali, jalaliToGregorian, JALALI_MONTHS, 
 import ImageUploader from "@/components/admin/ImageUploader";
 
 type Product = { id: number; name: string; description: string | null; price: number; image: string | null; images?: string[] | null; videoUrl?: string | null; isBestseller: boolean | null; stock: number | null };
+type Stand = { id: number; name: string; description: string | null; price: number; image: string | null; images?: string[] | null; stock: number; isActive: boolean; sortOrder: number };
 type Shop = { id: number; name: string; slug: string; secondarySlug?: string | null; image: string | null; bannerImage: string | null; bannerMobileImage?: string | null; phone?: string | null; commissionRate: number | null; totalEarnings: number | null; paidEarnings: number | null };
 type Discount = { id: number; code: string; type: "percentage" | "amount"; value: number; isActive: boolean | null; isPublic: boolean | null; createdAt: string | null };
 type Order = { id: number; customerId: number; shopId: number; customerName: string; customerPhone: string; customerAddress: string; shippingMethod: string; totalAmount: number; commissionAmount: number | null; status: string | null; trackingLink: string | null; items: any; createdAt: string | null };
@@ -32,6 +33,7 @@ const SvgIcons = {
 export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [products, setProducts] = useState<Product[]>([]);
+  const [stands, setStands] = useState<Stand[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [discounts, setDiscounts] = useState<Discount[]>([]);
@@ -40,6 +42,7 @@ export default function AdminDashboard() {
   const [sliderBanners, setSliderBanners] = useState<any[]>([]);
   const [bottomBanners, setBottomBanners] = useState<any[]>([]);
   const [editProduct, setEditProduct] = useState<any>(null);
+  const [editStand, setEditStand] = useState<any>(null);
   const [editShop, setEditShop] = useState<any>(null);
   const [editOrder, setEditOrder] = useState<any>(null);
   const [payoutForm, setPayoutForm] = useState({ shopId: 0, amount: 0, description: "" });
@@ -85,8 +88,9 @@ export default function AdminDashboard() {
 
   async function loadAll() {
     try {
-      const [pRes, sRes, oRes, stRes, bRes, dRes, supRes] = await Promise.all([
+      const [pRes, standsRes, sRes, oRes, stRes, bRes, dRes, supRes] = await Promise.all([
         fetch("/api/products", { credentials: "include", cache: "no-store" }),
+        fetch("/api/stands?admin=1", { credentials: "include", cache: "no-store" }),
         fetch("/api/shops", { credentials: "include", cache: "no-store" }),
         fetch("/api/orders", { credentials: "include", cache: "no-store" }),
         fetch("/api/settings", { credentials: "include", cache: "no-store" }),
@@ -95,6 +99,7 @@ export default function AdminDashboard() {
         fetch("/api/support", { credentials: "include", cache: "no-store" }),
       ]);
       setProducts(await pRes.json());
+      const standsData = await standsRes.json(); setStands(Array.isArray(standsData) ? standsData : []);
       setShops(await sRes.json());
       const od = await oRes.json(); setOrders(Array.isArray(od) ? od : []);
       setSettings(await stRes.json());
@@ -115,6 +120,8 @@ export default function AdminDashboard() {
   };
   const saveProduct = async () => { if (!editProduct) return; try { await request("/api/products", { method: editProduct.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editProduct) }); setEditProduct(null); await loadAll(); } catch (e:any) { alert(e.message); } };
   const deleteProduct = async (id: number) => { if (!confirm("حذف شود؟")) return; try { await request("/api/products", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); await loadAll(); } catch (e:any) { alert(e.message); } };
+  const saveStand = async () => { if (!editStand) return; try { await request("/api/stands", { method: editStand.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editStand) }); setEditStand(null); await loadAll(); } catch (e:any) { alert(e.message); } };
+  const deleteStand = async (id: number) => { if (!confirm("این استند حذف شود؟")) return; try { await request("/api/stands", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); await loadAll(); } catch (e:any) { alert(e.message); } };
   const saveShop = async () => { if (!editShop) return; try { await request("/api/shops", { method: editShop.id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(editShop) }); setEditShop(null); await loadAll(); } catch (e:any) { alert(e.message); } };
   const updateOrder = async () => { if (!editOrder) return; try { await request("/api/orders", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editOrder.id, status: editOrder.status, trackingLink: editOrder.trackingLink }) }); setEditOrder(null); await loadAll(); } catch (e:any) { alert(e.message); } };
   const processPayout = async () => { try { await request("/api/payouts", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payoutForm) }); setPayoutForm({ shopId: 0, amount: 0, description: "" }); await loadAll(); } catch (e:any) { alert(e.message); } };
@@ -253,6 +260,7 @@ export default function AdminDashboard() {
   const menuItems = [
     { key: "dashboard", icon: SvgIcons.dashboard, label: "داشبورد" },
     { key: "products", icon: SvgIcons.products, label: "محصولات" },
+    { key: "stands", icon: SvgIcons.products, label: "استندها" },
     { key: "shops", icon: SvgIcons.shops, label: "فروشگاه‌ها" },
     { key: "orders", icon: SvgIcons.orders, label: "سفارش‌ها" },
     { key: "backup", icon: SvgIcons.backup, label: "بکاپ سفارش‌ها (اکسل)" },
@@ -399,6 +407,38 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* Stands */}
+        {activeSection === "stands" && (
+          <div className="animate-fadeIn">
+            <div className="flex justify-between items-center mb-5">
+              <h2 className="text-lg font-black" style={{ color: secondary }}>استندها</h2>
+              <button onClick={() => setEditStand({ name: "", description: "", price: 0, image: "", images: [], stock: 0, isActive: true, sortOrder: 0 })} className="px-4 py-2 rounded-xl text-white text-xs font-bold" style={{ background: primary }}>استند جدید</button>
+            </div>
+            {editStand && (
+              <div className="bg-white rounded-2xl p-5 mb-5 space-y-3 animate-scaleIn">
+                <input placeholder="نام استند" value={editStand.name} onChange={(e) => setEditStand({ ...editStand, name: e.target.value })} className={inputClass} />
+                <textarea placeholder="توضیحات استند" value={editStand.description || ""} onChange={(e) => setEditStand({ ...editStand, description: e.target.value })} className={inputClass + " resize-none"} rows={3} />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <input type="number" min="0" placeholder="قیمت (تومان)" value={editStand.price ?? ""} onChange={(e) => setEditStand({ ...editStand, price: Number(e.target.value) })} className={inputClass} />
+                  <input type="number" min="0" placeholder="موجودی" value={editStand.stock ?? ""} onChange={(e) => setEditStand({ ...editStand, stock: Number(e.target.value) })} className={inputClass} />
+                  <input type="number" placeholder="ترتیب نمایش" value={editStand.sortOrder ?? ""} onChange={(e) => setEditStand({ ...editStand, sortOrder: Number(e.target.value) })} className={inputClass} />
+                </div>
+                <ImageUploader folder="stands" preset="stand" label="تصویر اصلی استند" value={editStand.image} onChange={(image) => setEditStand({ ...editStand, image })} onBusyChange={setImageEditorBusy} />
+                <div className="rounded-xl border border-gray-200 p-3 space-y-3">
+                  <ImageUploader folder="stands" preset="stand" label="افزودن تصویر به گالری" value={null} onChange={(url) => setEditStand({ ...editStand, images: [...(Array.isArray(editStand.images) ? editStand.images : []), url] })} onBusyChange={setImageEditorBusy} />
+                  {Array.isArray(editStand.images) && editStand.images.length > 0 && <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">{editStand.images.map((url: string, index: number) => <div key={`${url}-${index}`} className="relative aspect-square rounded-lg overflow-hidden border"><img src={url} alt="" className="w-full h-full object-cover"/><button type="button" onClick={() => setEditStand({ ...editStand, images: editStand.images.filter((_: string, i: number) => i !== index) })} className="absolute top-1 left-1 w-6 h-6 rounded-full bg-black/60 text-white">×</button></div>)}</div>}
+                </div>
+                <label className="flex items-center gap-2 text-xs font-bold text-gray-600"><input type="checkbox" checked={Boolean(editStand.isActive)} onChange={(e) => setEditStand({ ...editStand, isActive: e.target.checked })} style={{ accentColor: primary }} /> نمایش در فروشگاه</label>
+                <div className="flex gap-2"><button disabled={imageEditorBusy} onClick={saveStand} className="flex-1 py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50" style={{ background: primary }}>ذخیره</button><button onClick={() => setEditStand(null)} className="px-5 py-2.5 rounded-xl border text-xs font-bold text-gray-500">انصراف</button></div>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {stands.map((stand) => <div key={stand.id} className="bg-white rounded-2xl overflow-hidden"><img src={stand.image || "https://via.placeholder.com/300"} alt={stand.name} className="w-full h-36 object-cover"/><div className="p-4"><div className="flex justify-between gap-2"><h3 className="font-bold text-sm" style={{ color: secondary }}>{stand.name}</h3><span className={`text-[10px] ${stand.isActive ? "text-green-600" : "text-gray-400"}`}>{stand.isActive ? "فعال" : "غیرفعال"}</span></div><p className="text-xs font-bold mt-1" style={{ color: primary }}>{formatPrice(stand.price)}</p><p className="text-[10px] text-gray-400 mt-1">موجودی: {stand.stock} · ترتیب: {stand.sortOrder}</p><div className="flex gap-1.5 mt-3"><button onClick={() => setEditStand({ ...stand })} className="flex-1 py-2 rounded-lg text-xs font-bold" style={{ background: `${primary}08`, color: primary }}>ویرایش</button><button onClick={() => deleteStand(stand.id)} className="py-2 px-3 rounded-lg bg-red-50 text-red-400">{SvgIcons.trash}</button></div></div></div>)}
+              {stands.length === 0 && <p className="text-sm text-gray-400 py-10 text-center col-span-full">هنوز استندی ثبت نشده است.</p>}
+            </div>
+          </div>
+        )}
+
         {/* Shops */}
         {activeSection === "shops" && (
           <div className="animate-fadeIn">
@@ -514,7 +554,7 @@ export default function AdminDashboard() {
                     <p className="text-xs text-gray-400 mb-2"><span>آدرس: </span>{o.customerAddress}</p>
                     <div className="flex flex-wrap gap-1 mb-3">
                       {items?.map((item: any, i: number) => (
-                        <span key={i} className="text-[10px] bg-gray-50 px-2 py-1 rounded-md font-bold">{item.name} ×{item.quantity}</span>
+                        <span key={i} className="text-[10px] bg-gray-50 px-2 py-1 rounded-md font-bold">{item.itemType === "stand" ? "استند: " : ""}{item.name} ×{item.quantity}</span>
                       ))}
                     </div>
                     <div className="flex justify-between pt-3 border-t border-gray-50 text-xs">
@@ -760,7 +800,7 @@ export default function AdminDashboard() {
                             </div>
                             <div className="mt-3 flex flex-wrap gap-1">
                               {Array.isArray(o.items) && o.items.map((item:any, i:number) => (
-                                <span key={i} className="bg-white border border-gray-100 rounded-md px-2 py-1 text-[10px] font-bold">{item.name} ×{item.quantity}</span>
+                                <span key={i} className="bg-white border border-gray-100 rounded-md px-2 py-1 text-[10px] font-bold">{item.itemType === "stand" ? "استند: " : ""}{item.name} ×{item.quantity}</span>
                               ))}
                             </div>
                             {o.trackingLink && <a href={o.trackingLink} target="_blank" rel="noreferrer" className="inline-block mt-3 text-[10px] font-bold" style={{ color: primary }}>لینک پیگیری</a>}
@@ -1060,6 +1100,7 @@ export default function AdminDashboard() {
                     { key: "primary_color", label: "رنگ اصلی", def: "#FF1744" },
                     { key: "secondary_color", label: "رنگ ثانویه", def: "#37474F" },
                     { key: "accent_color", label: "رنگ تاکیدی", def: "#FF5252" },
+                    { key: "footer_legal_color", label: "رنگ متن حقوقی", def: "#64748B" },
                   ].map((c) => (
                     <div key={c.key}>
                       <label className="block text-[11px] font-bold mb-1.5 text-gray-500">{c.label}</label>
@@ -1076,6 +1117,10 @@ export default function AdminDashboard() {
                 <div>
                   <label className="block text-[11px] font-bold mb-1.5 text-gray-500">عنوان بخش پرفروش‌ترین‌ها</label>
                   <input type="text" value={settings.bestseller_title || ""} onChange={(e) => setSettings({ ...settings, bestseller_title: e.target.value })} className={inputClass} style={{ "--tw-ring-color": primary } as any} />
+                </div>
+                <div className="mt-4">
+                  <label className="block text-[11px] font-bold mb-1.5 text-gray-500">متن حقوقی پایین فروشگاه</label>
+                  <textarea rows={4} placeholder="اگر خالی باشد در فروشگاه نمایش داده نمی‌شود" value={settings.footer_legal_text || ""} onChange={(e) => setSettings({ ...settings, footer_legal_text: e.target.value })} className={inputClass + " resize-y"} />
                 </div>
               </div>
               <button onClick={saveSettings} className="w-full py-3 rounded-xl text-white text-sm font-bold" style={{ background: primary }}>ذخیره تنظیمات</button>

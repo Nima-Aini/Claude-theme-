@@ -6,7 +6,7 @@ import { IMAGE_PRESETS, ImagePresetName } from "@/lib/image-presets";
 type Props = {
   label?: string;
   value?: string | null;
-  folder: "products" | "shops" | "banners";
+  folder: "products" | "stands" | "shops" | "banners";
   preset: ImagePresetName;
   onChange: (url: string) => void;
   onBusyChange?: (busy: boolean) => void;

@@ -11,6 +11,7 @@ export type CartItem = {
   isBestseller?: boolean;
   stock?: number;
   quantity: number;
+  itemType: "product" | "stand";
 };
 
 const CART_EVENT = "akma_cart_synced";
@@ -23,7 +24,7 @@ export function getLocalCart(slug: string): CartItem[] {
     if (memoryCache[slug] && memoryCache[slug].raw === raw) {
       return memoryCache[slug].parsed;
     }
-    const parsed = raw ? JSON.parse(raw) : [];
+    const parsed = (raw ? JSON.parse(raw) : []).map((item: CartItem) => ({ ...item, itemType: item.itemType === "stand" ? "stand" : "product" }));
     memoryCache[slug] = { raw, parsed };
     return parsed;
   } catch {
@@ -86,14 +87,16 @@ export function useCart(slug: string) {
   );
 
   const addItem = useCallback(
-    (item: { id: number; name: string; price: number; image?: string | null; description?: string | null; isBestseller?: boolean; stock?: number }, qty: number = 1) => {
+    (item: { id: number; name: string; price: number; image?: string | null; description?: string | null; isBestseller?: boolean; stock?: number; itemType?: "product" | "stand" }, qty: number = 1) => {
       const current = getLocalCart(slug);
-      const existingIndex = current.findIndex((i) => i.id === item.id);
+      const itemType = item.itemType === "stand" ? "stand" : "product";
+      if (typeof item.stock === "number" && item.stock <= 0) return current;
+      const existingIndex = current.findIndex((i) => i.id === item.id && i.itemType === itemType);
       let updated: CartItem[];
 
       if (existingIndex > -1) {
         updated = current.map((i, idx) =>
-          idx === existingIndex ? { ...i, quantity: i.quantity + qty } : i
+          idx === existingIndex ? { ...i, quantity: Math.min(i.quantity + qty, i.stock ?? Number.MAX_SAFE_INTEGER) } : i
         );
       } else {
         updated = [
@@ -106,7 +109,8 @@ export function useCart(slug: string) {
             description: item.description || null,
             isBestseller: item.isBestseller,
             stock: item.stock,
-            quantity: qty,
+            quantity: Math.min(qty, item.stock ?? Number.MAX_SAFE_INTEGER),
+            itemType,
           },
         ];
       }
@@ -117,23 +121,23 @@ export function useCart(slug: string) {
   );
 
   const setItemQuantity = useCallback(
-    (productId: number, qty: number) => {
+    (id: number, qty: number, itemType: "product" | "stand" = "product") => {
       const current = getLocalCart(slug);
       if (qty <= 0) {
-        const updated = current.filter((i) => i.id !== productId);
+        const updated = current.filter((i) => i.id !== id || i.itemType !== itemType);
         updateCart(updated);
         return;
       }
-      const updated = current.map((i) => (i.id === productId ? { ...i, quantity: qty } : i));
+      const updated = current.map((i) => (i.id === id && i.itemType === itemType ? { ...i, quantity: Math.min(qty, i.stock ?? Number.MAX_SAFE_INTEGER) } : i));
       updateCart(updated);
     },
     [slug, updateCart]
   );
 
   const removeItem = useCallback(
-    (productId: number) => {
+    (id: number, itemType: "product" | "stand" = "product") => {
       const current = getLocalCart(slug);
-      const updated = current.filter((i) => i.id !== productId);
+      const updated = current.filter((i) => i.id !== id || i.itemType !== itemType);
       updateCart(updated);
     },
     [slug, updateCart]

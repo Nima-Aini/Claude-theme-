@@ -1,6 +1,6 @@
 import { db, pool } from "@/db";
-import { shops, products, siteSettings, sliderBanners, bottomBanners } from "@/db/schema";
-import { asc } from "drizzle-orm";
+import { products, stands, siteSettings, sliderBanners, bottomBanners } from "@/db/schema";
+import { asc, eq } from "drizzle-orm";
 import { notFound, permanentRedirect } from "next/navigation";
 import StoreClient from "./StoreClient";
 import { querySuffix, resolveShopSlug } from "@/lib/shops";
@@ -28,6 +28,7 @@ export default async function StorePage({ params, searchParams }: PageProps) {
   const shop = resolved.shop;
 
   const allProducts = await db.select().from(products);
+  const allStands = await db.select().from(stands).where(eq(stands.isActive, true)).orderBy(asc(stands.sortOrder), asc(stands.id));
   const sliders = await db.select().from(sliderBanners).orderBy(asc(sliderBanners.sortOrder));
   const bottoms = await db.select().from(bottomBanners).orderBy(asc(bottomBanners.sortOrder));
 
@@ -69,6 +70,15 @@ export default async function StorePage({ params, searchParams }: PageProps) {
         videoUrl: p.videoUrl,
         isBestseller: p.isBestseller ?? false,
         stock: p.stock ?? 0,
+      }))}
+      stands={allStands.map((stand) => ({
+        id: stand.id,
+        name: stand.name,
+        description: stand.description,
+        price: stand.price,
+        image: stand.image,
+        stock: stand.stock,
+        itemType: "stand" as const,
       }))}
       sliderBanners={sliders.map((s) => ({ id: s.id, image: s.image, mobileImage: s.mobileImage }))}
       bottomBanners={bottoms.map((b) => ({ id: b.id, image: b.image, mobileImage: b.mobileImage }))}

@@ -2,6 +2,7 @@ export type ImagePreset = { label: string; width: number; height: number; aspect
 
 export const IMAGE_PRESETS = {
   product: { label: "تصویر محصول", width: 1080, height: 1080, aspect: 1, preview: "square" },
+  stand: { label: "تصویر استند", width: 1080, height: 1080, aspect: 1, preview: "square" },
   shop: { label: "لوگو فروشگاه", width: 800, height: 800, aspect: 1, preview: "square" },
   sliderDesktop: { label: "اسلایدر دسکتاپ", width: 1600, height: 900, aspect: 16 / 9, preview: "wide" },
   sliderMobile: { label: "اسلایدر موبایل", width: 1080, height: 608, aspect: 16 / 9, preview: "wide" },

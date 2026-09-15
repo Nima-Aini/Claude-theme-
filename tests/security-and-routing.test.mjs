@@ -38,3 +38,21 @@ test("media paths are contained and uploads inspect image metadata", async () =>
   assert.match(upload, /sharp\(source/);
   assert.match(upload, /limitInputPixels/);
 });
+
+test("stands are independently stored, admin protected, and accepted by orders", async () => {
+  const migration = await read("src/db/stands-migration.sql");
+  const api = await read("src/app/api/stands/route.ts");
+  const orders = await read("src/app/api/orders/route.ts");
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS stands/i);
+  assert.match(migration, /is_active BOOLEAN NOT NULL DEFAULT true/i);
+  assert.match(api, /requireAdmin/);
+  assert.match(orders, /itemType.*stand/s);
+  assert.match(orders, /gte\(stands\.stock/);
+});
+
+test("storefront has mobile edge-to-edge shop banner and shared section divider", async () => {
+  const store = await read("src/app/store/[slug]/StoreClient.tsx");
+  assert.match(store, /w-full overflow-hidden aspect-\[2\/1\][^\n]+sm:mx-4/);
+  assert.match(store, /function SectionDivider/);
+  assert.match(store, /footer_legal_text/);
+});

@@ -284,8 +284,11 @@ export default function ProductClient({
           customerPostalCode: checkoutForm.postalCode,
           shippingMethod: checkoutForm.shipping,
           totalAmount: discountedTotal,
+          discountCode: discountValue > 0 ? discountCode.trim() : undefined,
           items: cart.map((i) => ({
-            productId: i.id,
+            itemType: i.itemType,
+            productId: i.itemType === "product" ? i.id : undefined,
+            standId: i.itemType === "stand" ? i.id : undefined,
             name: i.name,
             price: i.price,
             quantity: i.quantity,
@@ -669,7 +672,7 @@ export default function ProductClient({
                   <div className="space-y-3">
                     {cart.map((item) => (
                       <div
-                        key={item.id}
+                        key={`${item.itemType}-${item.id}`}
                         className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex gap-3 items-center"
                       >
                         <img
@@ -679,12 +682,13 @@ export default function ProductClient({
                         />
                         <div className="flex-1 min-w-0">
                           <h4 className="font-bold text-xs text-slate-800 truncate">{item.name}</h4>
+                          {item.itemType === "stand" && <span className="text-[9px] font-bold text-slate-500">استند</span>}
                           <p className="text-xs font-black mt-1" style={{ color: primary }}>
                             {formatPrice(item.price)}
                           </p>
                           <div className="flex items-center gap-2 mt-2">
                             <button
-                              onClick={() => setItemQuantity(item.id, item.quantity - 1)}
+                              onClick={() => setItemQuantity(item.id, item.quantity - 1, item.itemType)}
                               className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
                             >
                               {item.quantity === 1 ? Icons.trash : Icons.minus}
@@ -693,7 +697,7 @@ export default function ProductClient({
                               {item.quantity}
                             </span>
                             <button
-                              onClick={() => setItemQuantity(item.id, item.quantity + 1)}
+                              onClick={() => setItemQuantity(item.id, item.quantity + 1, item.itemType)}
                               className="w-7 h-7 rounded-lg text-white flex items-center justify-center active:scale-95 transition-all"
                               style={{ background: primary }}
                             >
@@ -710,7 +714,7 @@ export default function ProductClient({
                         <input
                           type="text"
                           value={discountCode}
-                          onChange={(e) => setDiscountCode(e.target.value)}
+                          onChange={(e) => { setDiscountCode(e.target.value); setDiscountValue(0); setDiscountMessage(""); }}
                           placeholder="کد تخفیف"
                           className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-mono"
                           dir="ltr"

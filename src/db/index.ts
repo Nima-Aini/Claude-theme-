@@ -47,6 +47,19 @@ export async function syncFullDatabase(poolInstance: Pool) {
         stock INTEGER DEFAULT 100,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      CREATE TABLE IF NOT EXISTS stands (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        price INTEGER NOT NULL,
+        image TEXT,
+        images JSONB,
+        stock INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS stands_public_order_idx ON stands (is_active, sort_order, id);
       CREATE TABLE IF NOT EXISTS shops (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,

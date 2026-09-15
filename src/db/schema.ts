@@ -31,6 +31,20 @@ export const products = pgTable("products", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Independent purchasable display stands
+export const stands = pgTable("stands", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  price: integer("price").notNull(),
+  image: text("image"),
+  images: jsonb("images"),
+  stock: integer("stock").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Shops (sellers/resellers)
 export const shops = pgTable("shops", {
   id: serial("id").primaryKey(),
@@ -73,7 +87,7 @@ export const orders = pgTable("orders", {
   status: varchar("status", { length: 50 }).default("pending"),
   trackingLink: text("tracking_link"),
   customerPostalCode: varchar("customer_postal_code", { length: 10 }),
-  items: jsonb("items").notNull(), // [{productId, name, price, quantity, image}]
+  items: jsonb("items").notNull(), // [{itemType, productId|standId, name, price, quantity, image}]
   createdAt: timestamp("created_at").defaultNow(),
 });
 

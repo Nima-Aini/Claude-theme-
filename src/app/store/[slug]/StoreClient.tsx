@@ -12,7 +12,10 @@ type Product = {
   image: string | null;
   isBestseller: boolean;
   stock: number;
+  itemType?: "product";
 };
+
+type Stand = Omit<Product, "isBestseller" | "itemType"> & { itemType: "stand" };
 
 type Shop = {
   id: number;
@@ -31,6 +34,7 @@ type Props = {
   shop: Shop;
   products: Product[];
   bestsellers: Product[];
+  stands: Stand[];
   sliderBanners: Banner[];
   bottomBanners: Banner[];
   settings: Record<string, string>;
@@ -61,10 +65,15 @@ const Icons = {
   share: <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" /></svg>,
 };
 
+function SectionDivider({ color }: { color: string }) {
+  return <div aria-hidden="true" className="mx-4 h-px opacity-25" style={{ background: `linear-gradient(to left, transparent, ${color}, transparent)` }} />;
+}
+
 export default function StoreClient({
   shop,
   products,
   bestsellers,
+  stands,
   sliderBanners,
   bottomBanners,
   settings,
@@ -217,9 +226,9 @@ export default function StoreClient({
     }
   };
 
-  const handleAddToCart = (product: Product) => {
-    addItem(product, 1);
-    showToast(`✓ «${product.name}» به سبد خرید اضافه شد.`);
+  const handleAddToCart = (item: Product | Stand) => {
+    addItem(item, 1);
+    showToast(`✓ «${item.name}» به سبد خرید اضافه شد.`);
   };
 
   const discountAmount =
@@ -266,8 +275,11 @@ export default function StoreClient({
           customerPostalCode: checkoutForm.postalCode,
           shippingMethod: checkoutForm.shipping,
           totalAmount: discountedTotal,
+          discountCode: discountValue > 0 ? discountCode.trim() : undefined,
           items: cart.map((i) => ({
-            productId: i.id,
+            itemType: i.itemType,
+            productId: i.itemType === "product" ? i.id : undefined,
+            standId: i.itemType === "stand" ? i.id : undefined,
             name: i.name,
             price: i.price,
             quantity: i.quantity,
@@ -425,7 +437,7 @@ export default function StoreClient({
       {/* MAIN TAB CONTENT */}
       {activeTab === "store" && (
         <main className="max-w-xl mx-auto space-y-6 pb-6 animate-fadeIn">
-          {shop.bannerImage && <picture className="block mx-4 mt-4 overflow-hidden rounded-3xl aspect-[2/1] sm:aspect-[8/3] bg-slate-100">
+          {shop.bannerImage && <picture className="block w-full overflow-hidden aspect-[2/1] bg-slate-100 sm:mx-4 sm:mt-4 sm:w-auto sm:rounded-3xl sm:aspect-[8/3]">
             {shop.bannerMobileImage && <source media="(max-width: 640px)" srcSet={shop.bannerMobileImage} />}
             <img src={shop.bannerImage} alt={`بنر ${shop.name}`} className="w-full h-full object-cover" />
           </picture>}
@@ -525,10 +537,11 @@ export default function StoreClient({
               </div>
             </div>
           )}
+          {bestsellers.length > 0 && <SectionDivider color={primary} />}
 
           {/* ALL PRODUCTS GRID */}
           <div className="px-4">
-            <h2 className="text-base font-black text-slate-800 mb-3.5">همه محصولات</h2>
+            <h2 className="text-base font-black text-slate-800 mb-3.5 text-center">همه محصولات</h2>
             <div className="grid grid-cols-2 gap-3">
               {products.map((product) => (
                 <div
@@ -565,6 +578,33 @@ export default function StoreClient({
             </div>
           </div>
 
+          <SectionDivider color={primary} />
+
+          {stands.length > 0 && (
+            <section className="px-4" aria-labelledby="stands-heading">
+              <h2 id="stands-heading" className="text-base font-black text-slate-800 mb-3.5 text-center">استندها</h2>
+              <div className="grid grid-cols-2 gap-3">
+                {stands.map((stand) => (
+                  <article key={stand.id} className="bg-white rounded-2xl p-3 border border-slate-100 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <div className="aspect-square rounded-xl overflow-hidden mb-2.5 bg-slate-100">
+                        <img src={stand.image || "https://via.placeholder.com/400"} alt={stand.name} className="w-full h-full object-cover" />
+                      </div>
+                      <h3 className="font-bold text-xs text-slate-800 line-clamp-2 leading-4 mb-1">{stand.name}</h3>
+                      {stand.description && <p className="text-[10px] text-slate-500 line-clamp-2 mb-1.5">{stand.description}</p>}
+                      <p className="font-black text-xs" style={{ color: primary }}>{formatPrice(stand.price)}</p>
+                    </div>
+                    <button disabled={stand.stock < 1} onClick={() => handleAddToCart(stand)} className="w-full mt-2.5 py-2 rounded-xl text-white text-xs font-bold shadow-sm active:scale-95 transition-all disabled:bg-slate-300 disabled:shadow-none" style={stand.stock > 0 ? { background: primary } : undefined}>
+                      {stand.stock > 0 ? "افزودن به سبد" : "ناموجود"}
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {stands.length > 0 && <SectionDivider color={primary} />}
+
           {/* BOTTOM BANNERS */}
           {bottomBanners.length > 0 && (
             <div className="px-4 space-y-3">
@@ -574,6 +614,11 @@ export default function StoreClient({
                 </div>
               ))}
             </div>
+          )}
+          {settings.footer_legal_text?.trim() && (
+            <footer className="px-6 pb-4 text-center text-[11px] leading-6 whitespace-pre-line" style={{ color: settings.footer_legal_color || secondary }}>
+              {settings.footer_legal_text.trim()}
+            </footer>
           )}
         </main>
       )}
@@ -819,7 +864,7 @@ export default function StoreClient({
                   <div className="space-y-3">
                     {cart.map((item) => (
                       <div
-                        key={item.id}
+                        key={`${item.itemType}-${item.id}`}
                         className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex gap-3 items-center"
                       >
                         <img
@@ -829,12 +874,13 @@ export default function StoreClient({
                         />
                         <div className="flex-1 min-w-0">
                           <h4 className="font-bold text-xs text-slate-800 truncate">{item.name}</h4>
+                          {item.itemType === "stand" && <span className="text-[9px] font-bold text-slate-500">استند</span>}
                           <p className="text-xs font-black mt-1" style={{ color: primary }}>
                             {formatPrice(item.price)}
                           </p>
                           <div className="flex items-center gap-2 mt-2">
                             <button
-                              onClick={() => setItemQuantity(item.id, item.quantity - 1)}
+                              onClick={() => setItemQuantity(item.id, item.quantity - 1, item.itemType)}
                               className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100 active:scale-95 transition-all"
                             >
                               {item.quantity === 1 ? Icons.trash : Icons.minus}
@@ -843,7 +889,7 @@ export default function StoreClient({
                               {item.quantity}
                             </span>
                             <button
-                              onClick={() => setItemQuantity(item.id, item.quantity + 1)}
+                              onClick={() => setItemQuantity(item.id, item.quantity + 1, item.itemType)}
                               className="w-7 h-7 rounded-lg text-white flex items-center justify-center active:scale-95 transition-all"
                               style={{ background: primary }}
                             >
@@ -860,7 +906,7 @@ export default function StoreClient({
                         <input
                           type="text"
                           value={discountCode}
-                          onChange={(e) => setDiscountCode(e.target.value)}
+                          onChange={(e) => { setDiscountCode(e.target.value); setDiscountValue(0); setDiscountMessage(""); }}
                           placeholder="کد تخفیف (مثال: AKMA10)"
                           className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-mono"
                           dir="ltr"
@@ -1195,7 +1241,7 @@ function OrdersTab({
                     className="w-10 h-10 rounded-lg object-cover bg-white"
                   />
                   <div className="text-right">
-                    <p className="text-[11px] font-bold text-slate-800 line-clamp-1 max-w-[120px]">{item.name}</p>
+                    <p className="text-[11px] font-bold text-slate-800 line-clamp-1 max-w-[120px]">{item.itemType === "stand" ? "استند: " : ""}{item.name}</p>
                     <p className="text-[10px] text-slate-400 font-bold">{item.quantity} عدد</p>
                   </div>
                 </div>

@@ -25,7 +25,7 @@ export function safeMediaFile(parts: string[]) {
 }
 
 export async function saveMedia(folder: string, contents: Buffer, extension = ".webp") {
-  if (!["products", "shops", "banners"].includes(folder)) throw new Error("Invalid media folder");
+  if (!["products", "stands", "shops", "banners"].includes(folder)) throw new Error("Invalid media folder");
   const directory = path.join(uploadRoot(), folder);
   await mkdir(directory, { recursive: true });
   const name = `${Date.now()}-${crypto.randomUUID()}${extension}`;
