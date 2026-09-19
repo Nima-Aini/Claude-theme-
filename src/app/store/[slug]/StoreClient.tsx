@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useTransition } from "react";
 import Link from "next/link";
 import { useCart } from "@/lib/cart";
+import EnamadBadge from "@/components/EnamadBadge";
 
 type Product = {
   id: number;
@@ -615,11 +616,14 @@ export default function StoreClient({
               ))}
             </div>
           )}
-          {settings.footer_legal_text?.trim() && (
-            <footer className="px-6 pb-4 text-center text-[11px] leading-6 whitespace-pre-line" style={{ color: settings.footer_legal_color || secondary }}>
-              {settings.footer_legal_text.trim()}
-            </footer>
-          )}
+          <footer className="mx-4 rounded-3xl border border-slate-100 bg-white/70 px-6 py-5 text-center shadow-sm">
+            {settings.footer_legal_text?.trim() && (
+              <p className="mb-4 text-[11px] leading-6 whitespace-pre-line" style={{ color: settings.footer_legal_color || secondary }}>
+                {settings.footer_legal_text.trim()}
+              </p>
+            )}
+            <EnamadBadge />
+          </footer>
         </main>
       )}
 
@@ -812,6 +816,13 @@ export default function StoreClient({
               {Icons.copy}
               <span>کپی لینک صفحه فروشگاه</span>
             </button>
+          </div>
+
+          {/* Trust seal card */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm text-center">
+            <h3 className="font-black text-sm text-slate-800 mb-1">اعتماد و مجوزها</h3>
+            <p className="text-xs text-slate-500 mb-4">برای مشاهده اعتبار رسمی سایت روی نماد کلیک کنید.</p>
+            <EnamadBadge />
           </div>
         </div>
       )}

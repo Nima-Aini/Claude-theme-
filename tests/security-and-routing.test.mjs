@@ -56,3 +56,21 @@ test("storefront has mobile edge-to-edge shop banner and shared section divider"
   assert.match(store, /function SectionDivider/);
   assert.match(store, /footer_legal_text/);
 });
+
+test("root redirects server-side only to the Hosseini store", async () => {
+  const home = await read("src/app/page.tsx");
+  assert.match(home, /import \{ redirect \} from "next\/navigation"/);
+  assert.match(home, /redirect\("\/store\/hosseini"\)/);
+  assert.doesNotMatch(home, /window\.location/);
+});
+
+test("shared Enamad badge uses only official URLs and safe external-link attributes", async () => {
+  const badge = await read("src/components/EnamadBadge.tsx");
+  const store = await read("src/app/store/[slug]/StoreClient.tsx");
+  assert.match(badge, /https:\/\/trustseal\.enamad\.ir\/\?id=/);
+  assert.match(badge, /https:\/\/trustseal\.enamad\.ir\/logo\.aspx\?id=/);
+  assert.match(badge, /rel="noopener noreferrer"/);
+  assert.match(badge, /referrerPolicy="origin"/);
+  assert.doesNotMatch(badge, /dangerouslySetInnerHTML|<script/i);
+  assert.equal((store.match(/<EnamadBadge/g) || []).length, 2);
+});
