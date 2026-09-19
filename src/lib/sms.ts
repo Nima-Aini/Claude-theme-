@@ -1,81 +1,103 @@
-// Melli Payamak SMS Service
-const SMS_USERNAME = process.env.SMS_USERNAME || "9962879248";
-const SMS_PASSWORD = process.env.SMS_PASSWORD || "da2664cd-df2f-4f83-9317-a7f6ebd727a8";
-const SMS_FROM = process.env.SMS_FROM || "50004001628792";
-const BODY_ID = process.env.SMS_OTP_BODY_ID || "510394"; // Pattern ID for OTP
-const ORDER_CUSTOMER_BODY_ID = process.env.SMS_ORDER_CUSTOMER_BODY_ID || "516984";
-const ORDER_SHOP_BODY_ID = process.env.SMS_ORDER_SHOP_BODY_ID || "516985";
-const PAYOUT_BODY_ID = process.env.SMS_PAYOUT_BODY_ID || "516987";
+// Melli Payamak REST service. Credentials and pattern IDs must only come from env.
+const SMS_API = "https://rest.payamak-panel.com/api/SendSMS";
+
+type SmsResponse = {
+  Value?: string | number;
+  RetStatus?: number;
+  StrRetStatus?: string;
+};
 
 function normalizePhone(phone: string | null | undefined): string | null {
   if (!phone) return null;
-  let p = phone
-    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
-    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+  let normalized = phone
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
     .replace(/\D/g, "");
-  if (p.startsWith("98")) p = "0" + p.slice(2);
-  if (!p.startsWith("0") && p.length === 10) p = "0" + p;
-  if (p.length !== 11 || !p.startsWith("09")) {
-    console.warn("Invalid Iranian mobile number format:", phone);
+  if (normalized.startsWith("98")) normalized = `0${normalized.slice(2)}`;
+  if (!normalized.startsWith("0") && normalized.length === 10) normalized = `0${normalized}`;
+  if (normalized.length !== 11 || !normalized.startsWith("09")) {
+    console.warn("MelliPayamak: invalid Iranian mobile number");
     return null;
   }
-  return p;
+  return normalized;
+}
+
+function credentials() {
+  const username = process.env.SMS_USERNAME?.trim();
+  const password = process.env.SMS_PASSWORD?.trim();
+  if (!username || !password) {
+    console.error("MelliPayamak: SMS_USERNAME or SMS_PASSWORD is not configured");
+    return null;
+  }
+  return { username, password };
+}
+
+function numericBodyId(value: string | undefined, envName: string) {
+  const bodyId = value?.trim();
+  if (!bodyId || !/^\d+$/.test(bodyId)) {
+    console.error(`MelliPayamak: ${envName} is not configured with a numeric pattern ID`);
+    return null;
+  }
+  return bodyId;
+}
+
+function succeeded(data: SmsResponse | null) {
+  return data?.RetStatus === 1 || Number(data?.Value) > 0;
+}
+
+async function postForm(method: "BaseServiceNumber" | "SendSMS", fields: Record<string, string>, operation: string) {
+  const auth = credentials();
+  if (!auth) return false;
+
+  const body = new URLSearchParams({ username: auth.username, password: auth.password, ...fields });
+  try {
+    const response = await fetch(`${SMS_API}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: body.toString(),
+    });
+    const data = await response.json().catch(() => null) as SmsResponse | null;
+    const ok = response.ok && succeeded(data);
+    if (!ok) {
+      console.error("MelliPayamak request failed", {
+        operation,
+        httpStatus: response.status,
+        retStatus: data?.RetStatus,
+        status: data?.StrRetStatus,
+      });
+    }
+    return ok;
+  } catch (error) {
+    console.error("MelliPayamak network error", {
+      operation,
+      message: error instanceof Error ? error.message : "unknown network error",
+    });
+    return false;
+  }
+}
+
+async function sendPatternSMS(
+  phone: string | null | undefined,
+  bodyIdValue: string | undefined,
+  bodyIdEnvName: string,
+  values: string[],
+): Promise<boolean> {
+  const to = normalizePhone(phone);
+  const bodyId = numericBodyId(bodyIdValue, bodyIdEnvName);
+  if (!to || !bodyId || values.length === 0) return false;
+
+  // The official REST SDK accepts one text string. Pattern values are ordered
+  // and separated with semicolons before standard form-url encoding.
+  return postForm("BaseServiceNumber", {
+    to,
+    bodyId,
+    text: values.map(String).join(";"),
+  }, bodyIdEnvName);
 }
 
 export async function sendOTP(phone: string, code: string): Promise<boolean> {
-  const normalized = normalizePhone(phone);
-  if (!normalized) return false;
-
-  try {
-    // Using REST API for SendByBaseNumber (pattern-based sending)
-    const url = "https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber";
-    
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: SMS_USERNAME,
-        password: SMS_PASSWORD,
-        to: normalized,
-        bodyId: BODY_ID,
-        text: [code], // The {0} parameter in the pattern
-      }),
-    });
-
-    const data = await response.json().catch(() => null);
-    console.log("OTP SMS Response:", data);
-    
-    // RetStatus of 1 means success
-    if (data?.RetStatus === 1 || Number(data?.Value) > 0) {
-      return true;
-    }
-    
-    // Try alternative endpoint if first fails
-    const altUrl = "https://rest.payamak-panel.com/api/SendSMS/SendByBaseNumber3";
-    const altResponse = await fetch(altUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        username: SMS_USERNAME,
-        password: SMS_PASSWORD,
-        to: normalized,
-        text: code,
-        bodyId: parseInt(BODY_ID),
-      }),
-    });
-    
-    const altData = await altResponse.json().catch(() => null);
-    console.log("OTP SMS Alt Response:", altData);
-    
-    return altData?.RetStatus === 1 || Number(altData?.Value) > 0;
-  } catch (error) {
-    console.error("SMS Error:", error);
-    return false;
-  }
+  if (!/^\d{4,8}$/.test(code)) return false;
+  return sendPatternSMS(phone, process.env.SMS_OTP_BODY_ID, "SMS_OTP_BODY_ID", [code]);
 }
 
 export function generateOTP(): string {
@@ -83,87 +105,14 @@ export function generateOTP(): string {
 }
 
 export async function sendSMS(phone: string, text: string): Promise<boolean> {
-  const normalized = normalizePhone(phone);
-  if (!normalized || !text) return false;
-  try {
-    const response = await fetch("https://rest.payamak-panel.com/api/SendSMS/SendSMS", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: SMS_USERNAME,
-        password: SMS_PASSWORD,
-        to: normalized,
-        from: SMS_FROM,
-        text,
-        isFlash: false,
-      }),
-    });
-    const data = await response.json().catch(() => null);
-    return Number(data?.Value) > 0 || data?.RetStatus === 1;
-  } catch (error) {
-    console.error("SMS Error:", error);
+  const to = normalizePhone(phone);
+  const from = process.env.SMS_FROM?.trim();
+  if (!to || !text.trim()) return false;
+  if (!from) {
+    console.error("MelliPayamak: SMS_FROM is not configured");
     return false;
   }
-}
-
-async function sendPatternSMS(phone: string | null | undefined, bodyId: string, text: string[]): Promise<boolean> {
-  const normalized = normalizePhone(phone);
-  if (!normalized) {
-    console.warn("MelliPayamak: skip pattern SMS, missing or invalid phone number", { phone, bodyId });
-    return false;
-  }
-
-  try {
-    // Attempt 1: BaseServiceNumber with text array
-    const response = await fetch("https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: SMS_USERNAME,
-        password: SMS_PASSWORD,
-        to: normalized,
-        bodyId: Number(bodyId),
-        text,
-      }),
-    });
-    const data = await response.json().catch(() => null);
-    const ok = data?.RetStatus === 1 || Number(data?.Value) > 0;
-    if (ok) {
-      console.log("MelliPayamak pattern SMS succeeded via BaseServiceNumber", { to: normalized, bodyId, value: data?.Value });
-      return true;
-    }
-
-    // Attempt 2: SendByBaseNumber3 with semicolon-delimited string
-    const altResponse = await fetch("https://rest.payamak-panel.com/api/SendSMS/SendByBaseNumber3", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: SMS_USERNAME,
-        password: SMS_PASSWORD,
-        to: normalized,
-        bodyId: Number(bodyId),
-        text: text.join(";"),
-      }),
-    });
-    const altData = await altResponse.json().catch(() => null);
-    const altOk = altData?.RetStatus === 1 || Number(altData?.Value) > 0;
-    if (altOk) {
-      console.log("MelliPayamak pattern SMS succeeded via SendByBaseNumber3", { to: normalized, bodyId, value: altData?.Value });
-      return true;
-    }
-
-    console.error("MelliPayamak pattern SMS failed", {
-      phone: normalized,
-      bodyId,
-      args: text,
-      response: data,
-      altResponse: altData,
-    });
-    return false;
-  } catch (error) {
-    console.error("MelliPayamak pattern SMS network error", { phone: normalized, bodyId, error });
-    return false;
-  }
+  return postForm("SendSMS", { to, from, text, isFlash: "false" }, "plain SMS");
 }
 
 export async function sendOrderSMS(args: {
@@ -175,14 +124,14 @@ export async function sendOrderSMS(args: {
   totalCommission: number;
   trackingLink: string;
 }) {
-  const money = (n: number) => new Intl.NumberFormat("fa-IR").format(n);
+  const money = (value: number) => new Intl.NumberFormat("fa-IR").format(value);
   await Promise.allSettled([
-    sendPatternSMS(args.customerPhone, ORDER_CUSTOMER_BODY_ID, [
+    sendPatternSMS(args.customerPhone, process.env.SMS_ORDER_CUSTOMER_BODY_ID, "SMS_ORDER_CUSTOMER_BODY_ID", [
       String(args.orderId),
       money(args.amount),
       args.trackingLink,
     ]),
-    sendPatternSMS(args.shopPhone, ORDER_SHOP_BODY_ID, [
+    sendPatternSMS(args.shopPhone, process.env.SMS_ORDER_SHOP_BODY_ID, "SMS_ORDER_SHOP_BODY_ID", [
       String(args.orderId),
       money(args.commission),
       money(args.totalCommission),
@@ -191,6 +140,6 @@ export async function sendOrderSMS(args: {
 }
 
 export async function sendPayoutSMS(phone: string | null | undefined, amount: number, totalPaid: number) {
-  const money = (n: number) => new Intl.NumberFormat("fa-IR").format(n);
-  return sendPatternSMS(phone, PAYOUT_BODY_ID, [money(amount), money(totalPaid)]);
+  const money = (value: number) => new Intl.NumberFormat("fa-IR").format(value);
+  return sendPatternSMS(phone, process.env.SMS_PAYOUT_BODY_ID, "SMS_PAYOUT_BODY_ID", [money(amount), money(totalPaid)]);
 }

@@ -74,3 +74,15 @@ test("shared Enamad badge uses only official URLs and safe external-link attribu
   assert.doesNotMatch(badge, /dangerouslySetInnerHTML|<script/i);
   assert.equal((store.match(/<EnamadBadge/g) || []).length, 2);
 });
+
+test("SMS uses official form endpoints without source credentials or guessed fallbacks", async () => {
+  const sms = await read("src/lib/sms.ts");
+  const otpRoute = await read("src/app/api/auth/otp/send/route.ts");
+  assert.match(sms, /application\/x-www-form-urlencoded; charset=UTF-8/);
+  assert.match(sms, /URLSearchParams/);
+  assert.doesNotMatch(sms, /SendByBaseNumber3|Content-Type["']:\s*["']application\/json/);
+  assert.doesNotMatch(sms, /SMS_(?:USERNAME|PASSWORD)\s*=\s*process\.env[^\n]+\|\|/);
+  assert.match(otpRoute, /success: false[\s\S]+status: 502/);
+  assert.doesNotMatch(otpRoute, /console\.log[\s\S]*OTP/);
+  assert.ok(otpRoute.indexOf("if (!sent)") < otpRoute.indexOf("db.insert(otpCodes)"));
+});

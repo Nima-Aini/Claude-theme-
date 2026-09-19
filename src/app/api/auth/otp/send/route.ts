@@ -51,8 +51,10 @@ export async function POST(req: NextRequest) {
   const sent = await sendOTP(normalizedPhone, code);
   
   if (!sent) {
-    // For development/testing, still save the code but return a warning
-    console.log(`OTP for ${normalizedPhone}: ${code}`);
+    return NextResponse.json(
+      { success: false, error: "ارسال کد تایید ناموفق بود، دوباره تلاش کنید" },
+      { status: 502 },
+    );
   }
 
   // Save OTP to database
@@ -64,8 +66,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ 
     success: true, 
-    message: "کد تایید ارسال شد",
-    // For testing only - remove in production
-    ...(process.env.NODE_ENV !== "production" ? { debug_code: code } : {})
+    message: "کد تایید ارسال شد"
   });
 }
