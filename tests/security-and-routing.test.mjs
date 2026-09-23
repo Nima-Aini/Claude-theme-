@@ -64,13 +64,17 @@ test("root redirects server-side only to the Hosseini store", async () => {
   assert.doesNotMatch(home, /window\.location/);
 });
 
-test("shared Enamad badge uses only official URLs and safe external-link attributes", async () => {
+test("shared Enamad badge preserves the official trust-seal markup", async () => {
   const badge = await read("src/components/EnamadBadge.tsx");
   const store = await read("src/app/store/[slug]/StoreClient.tsx");
-  assert.match(badge, /https:\/\/trustseal\.enamad\.ir\/\?id=/);
-  assert.match(badge, /https:\/\/trustseal\.enamad\.ir\/logo\.aspx\?id=/);
-  assert.match(badge, /rel="noopener noreferrer"/);
-  assert.match(badge, /referrerPolicy="origin"/);
+  assert.match(badge, /href="https:\/\/trustseal\.enamad\.ir\/\?id=7452237&Code=P60yaoafM9r9twpvfb1fhmxsak1by8uF"/);
+  assert.match(badge, /src="https:\/\/trustseal\.enamad\.ir\/logo\.aspx\?id=7452237&Code=P60yaoafM9r9twpvfb1fhmxsak1by8uF"/);
+  assert.equal((badge.match(/referrerPolicy="origin"/g) || []).length, 2);
+  assert.match(badge, /target="_blank"/);
+  assert.match(badge, /alt=""/);
+  assert.match(badge, /style=\{\{ cursor: "pointer" \}\}/);
+  assert.match(badge, /code="P60yaoafM9r9twpvfb1fhmxsak1by8uF"/);
+  assert.doesNotMatch(badge, /aria-label|rel=|<(?:a|img)[^>]*className=/);
   assert.doesNotMatch(badge, /dangerouslySetInnerHTML|<script/i);
   assert.equal((store.match(/<EnamadBadge/g) || []).length, 2);
 });
