@@ -83,7 +83,7 @@ export default function StoreClient({
   const primary = settings.primary_color || "#FF1744";
   const secondary = settings.secondary_color || "#37474F";
 
-  const { cart, addItem, setItemQuantity, removeItem, clear, totalCount, totalAmount } = useCart(shop.slug);
+  const { cart, addItem, setItemQuantity, removeItem, totalCount, totalAmount } = useCart(shop.slug);
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [phone, setPhone] = useState("");
@@ -105,7 +105,6 @@ export default function StoreClient({
   const [discountValue, setDiscountValue] = useState(0);
   const [discountMessage, setDiscountMessage] = useState("");
   const [publicDiscounts, setPublicDiscounts] = useState<PublicDiscount[]>([]);
-  const [orderSuccess, setOrderSuccess] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [toastMessage, setToastMessage] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
@@ -275,7 +274,6 @@ export default function StoreClient({
           customerAddress: checkoutForm.address,
           customerPostalCode: checkoutForm.postalCode,
           shippingMethod: checkoutForm.shipping,
-          totalAmount: discountedTotal,
           discountCode: discountValue > 0 ? discountCode.trim() : undefined,
           items: cart.map((i) => ({
             itemType: i.itemType,
@@ -290,18 +288,18 @@ export default function StoreClient({
         credentials: "include",
       });
       if (res.ok) {
-        clear();
-        setShowCheckout(false);
-        setShowCartDrawer(false);
-        setOrderSuccess(true);
-        setDiscountCode("");
-        setDiscountValue(0);
+        const data = await res.json();
+        if (typeof data.paymentUrl !== "string" || !/^https:\/\/www\.zarinpal\.com\/pg\/StartPay\/[A-Za-z0-9-]+$/.test(data.paymentUrl)) {
+          throw new Error("آدرس درگاه پرداخت نامعتبر است");
+        }
+        try { sessionStorage.setItem(`payment_order_${shop.slug}`, String(data.orderId)); } catch {}
+        window.location.assign(data.paymentUrl);
       } else {
         const err = await res.json();
         alert(err.error || "خطا در ثبت سفارش");
       }
-    } catch {
-      alert("خطای ارتباط با سرور");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "خطای ارتباط با سرور");
     } finally {
       setLoading(false);
     }
@@ -359,34 +357,6 @@ export default function StoreClient({
       bestsellerRef.current.scrollBy({ left: dir === "left" ? -220 : 220, behavior: "smooth" });
     }
   };
-
-  /* ── ORDER SUCCESS SCREEN ── */
-  if (orderSuccess) {
-    return (
-      <div className="fixed inset-0 z-50 bg-white flex items-center justify-center animate-fadeIn p-6" dir="rtl">
-        <div className="text-center max-w-sm w-full">
-          <div className="mx-auto mb-6 text-emerald-500">{Icons.check}</div>
-          <h2 className="text-2xl font-black mb-2" style={{ color: secondary }}>
-            سفارش شما با موفقیت ثبت شد
-          </h2>
-          <p className="text-slate-500 text-sm mb-8 leading-relaxed">
-            کد رهگیری و جزئیات سفارش برای شما پیامک خواهد شد. با تشکر از خرید شما از {shop.name}.
-          </p>
-          <button
-            onClick={() => {
-              setOrderSuccess(false);
-              setActiveTab("orders");
-              loadOrders();
-            }}
-            className="w-full py-3.5 rounded-2xl text-white font-bold text-sm shadow-lg active:scale-95 transition-all"
-            style={{ background: primary }}
-          >
-            مشاهده سفارش در پنل
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-24 font-sans antialiased select-none" dir="rtl">
@@ -1208,6 +1178,9 @@ function OrdersTab({
   }, [loadOrders]);
 
   const statusLabels: Record<string, { label: string; bg: string; text: string }> = {
+    pending_payment: { label: "در انتظار پرداخت", bg: "#fef3c7", text: "#b45309" },
+    payment_failed: { label: "پرداخت ناموفق", bg: "#fee2e2", text: "#b91c1c" },
+    payment_cancelled: { label: "پرداخت لغو شد", bg: "#f1f5f9", text: "#475569" },
     pending: { label: "در انتظار بررسی", bg: "#fef3c7", text: "#b45309" },
     processing: { label: "در حال بسته‌بندی", bg: "#e0f2fe", text: "#0369a1" },
     shipped: { label: "ارسال شده", bg: "#dcfce7", text: "#15803d" },

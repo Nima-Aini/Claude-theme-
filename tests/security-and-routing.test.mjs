@@ -47,7 +47,16 @@ test("stands are independently stored, admin protected, and accepted by orders",
   assert.match(migration, /is_active BOOLEAN NOT NULL DEFAULT true/i);
   assert.match(api, /requireAdmin/);
   assert.match(orders, /itemType.*stand/s);
-  assert.match(orders, /gte\(stands\.stock/);
+  assert.match(orders, /stands\.stock} - \$\{stands\.reservedStock} >= \$\{item\.quantity}/);
+});
+
+test("checkout leaves financial and inventory effects for verified payment", async () => {
+  const route = await read("src/app/api/orders/route.ts");
+  assert.doesNotMatch(route, /body\.totalAmount|sendOrderSMS/);
+  assert.match(route, /paymentStatus: "pending"/);
+  assert.match(route, /status: "pending_payment"/);
+  assert.match(route, /reservedStock: sql/);
+  assert.doesNotMatch(route, /stock: sql\x60.*stock} -/);
 });
 
 test("storefront has mobile edge-to-edge shop banner and shared section divider", async () => {

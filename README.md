@@ -10,6 +10,8 @@ Run database migrations before starting a new release:
 npm run db:migrate
 ```
 
+For online payments, set `ZARINPAL_MERCHANT_ID` and the public HTTPS `SITE_URL` in the production environment before deploying. The callback registered with Zarinpal is `<SITE_URL>/api/payment/zarinpal/callback?orderId=<order-id>`; the gateway appends `Authority` and `Status`. Database prices, request amounts, and verification amounts all use toman (`IRT`). The GitHub Actions deploy workflow runs migrations before the build and PM2 restart. Payment gateway credentials must never be committed.
+
 Create the first administrator once, only while the `admins` table is empty:
 
 ```sh

@@ -182,6 +182,7 @@ export async function syncFullDatabase(poolInstance: Pool) {
       ALTER TABLE products ADD COLUMN IF NOT EXISTS video_url TEXT;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS is_bestseller BOOLEAN DEFAULT false;
       ALTER TABLE products ADD COLUMN IF NOT EXISTS stock INTEGER DEFAULT 100;
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS reserved_stock INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE shops ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
       ALTER TABLE shops ADD COLUMN IF NOT EXISTS secondary_slug VARCHAR(255);
       ALTER TABLE shops ADD COLUMN IF NOT EXISTS banner_mobile_image TEXT;
@@ -196,6 +197,15 @@ export async function syncFullDatabase(poolInstance: Pool) {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending';
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_link TEXT;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) NOT NULL DEFAULT 'legacy';
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) NOT NULL DEFAULT 'legacy';
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_authority VARCHAR(100);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_ref_id VARCHAR(100);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS commission_quote_amount INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_expires_at TIMESTAMP;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS reservation_active BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE stands ADD COLUMN IF NOT EXISTS reserved_stock INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'percentage';
       ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS value INTEGER DEFAULT 0;
       ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT false;

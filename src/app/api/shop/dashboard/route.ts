@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { orders, shops, payouts, payoutRequests } from "@/db/schema";
-import { eq, desc, count, sum } from "drizzle-orm";
+import { eq, desc, inArray, and } from "drizzle-orm";
 import { verifyToken } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const shopId = payload.id as number;
 
   const shop = await db.select().from(shops).where(eq(shops.id, shopId)).then(r => r[0]);
-  const shopOrders = await db.select().from(orders).where(eq(orders.shopId, shopId)).orderBy(desc(orders.createdAt));
+  const shopOrders = await db.select().from(orders).where(and(eq(orders.shopId, shopId), inArray(orders.paymentStatus, ["paid", "legacy"]))).orderBy(desc(orders.createdAt));
   const shopPayouts = await db.select().from(payouts).where(eq(payouts.shopId, shopId)).orderBy(desc(payouts.createdAt));
   const shopRequests = await db.select().from(payoutRequests).where(eq(payoutRequests.shopId, shopId)).orderBy(desc(payoutRequests.createdAt));
 

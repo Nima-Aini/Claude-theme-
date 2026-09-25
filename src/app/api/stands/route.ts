@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { stands } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
@@ -57,8 +57,9 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const id = Number(body.id);
     if (!Number.isInteger(id) || id < 1) throw new Error("شناسه استند نامعتبر است");
-    const result = await db.update(stands).set(values(body)).where(eq(stands.id, id)).returning();
-    return result[0] ? NextResponse.json(result[0]) : NextResponse.json({ error: "استند پیدا نشد" }, { status: 404 });
+    const data = values(body);
+    const result = await db.update(stands).set(data).where(and(eq(stands.id, id), sql`${stands.reservedStock} <= ${data.stock}`)).returning();
+    return result[0] ? NextResponse.json(result[0]) : NextResponse.json({ error: "موجودی جدید از تعداد رزروشده کمتر است" }, { status: 409 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "خطا در ویرایش استند" }, { status: 400 });
   }
@@ -68,6 +69,6 @@ export async function DELETE(req: NextRequest) {
   if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const id = Number((await req.json()).id);
   if (!Number.isInteger(id) || id < 1) return NextResponse.json({ error: "شناسه استند نامعتبر است" }, { status: 400 });
-  const result = await db.delete(stands).where(eq(stands.id, id)).returning({ id: stands.id });
-  return result[0] ? NextResponse.json({ success: true }) : NextResponse.json({ error: "استند پیدا نشد" }, { status: 404 });
+  const result = await db.delete(stands).where(and(eq(stands.id, id), eq(stands.reservedStock, 0))).returning({ id: stands.id });
+  return result[0] ? NextResponse.json({ success: true }) : NextResponse.json({ error: "استند رزروشده قابل حذف نیست" }, { status: 409 });
 }

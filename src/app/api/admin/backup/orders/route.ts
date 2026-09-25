@@ -24,6 +24,9 @@ async function ensureOrdersSchema() {
 }
 
 const statusMap: Record<string, string> = {
+  pending_payment: "در انتظار پرداخت",
+  payment_failed: "پرداخت ناموفق",
+  payment_cancelled: "پرداخت لغوشده",
   pending: "در انتظار بررسی",
   processing: "در حال پردازش",
   shipped: "ارسال شده",
@@ -109,6 +112,8 @@ export async function GET(req: NextRequest) {
         "کد پستی مشتری": ord.customerPostalCode || "-",
         "آدرس کامل تحویل": ord.customerAddress || "-",
         "وضعیت سفارش": statusMap[ord.status || "pending"] || ord.status || "در انتظار",
+        "وضعیت پرداخت": ord.paymentStatus === "paid" ? "پرداخت‌شده" : ord.paymentStatus === "legacy" ? "سفارش قدیمی" : ord.paymentStatus,
+        "کد پیگیری زرین‌پال": ord.paymentRefId || "",
         "روش ارسال": shippingMap[ord.shippingMethod] || ord.shippingMethod || "-",
         "لینک / کد رهگیری": ord.trackingLink || "-",
         "مبلغ کل سفارش (تومان)": ord.totalAmount,
@@ -130,7 +135,7 @@ export async function GET(req: NextRequest) {
       totalCommission: number;
     }>();
 
-    rawOrders.forEach((ord) => {
+    rawOrders.filter((ord) => ["paid", "legacy"].includes(ord.paymentStatus)).forEach((ord) => {
       const s = shopMap.get(ord.shopId);
       const current = shopSummaryMap.get(ord.shopId) || {
         shopName: s?.name || `فروشگاه #${ord.shopId}`,
@@ -169,7 +174,7 @@ export async function GET(req: NextRequest) {
       const st = ord.status || "pending";
       if (!statusCountMap[st]) statusCountMap[st] = { count: 0, totalAmount: 0 };
       statusCountMap[st].count += 1;
-      statusCountMap[st].totalAmount += ord.totalAmount || 0;
+      if (["paid", "legacy"].includes(ord.paymentStatus)) statusCountMap[st].totalAmount += ord.totalAmount || 0;
     });
 
     const statusSummaryRows = Object.entries(statusCountMap).map(([k, v], idx) => ({

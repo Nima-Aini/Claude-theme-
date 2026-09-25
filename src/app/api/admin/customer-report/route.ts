@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { customerShopLogins, customers, orders, shops } from "@/db/schema";
-import { desc, inArray } from "drizzle-orm";
+import { and, desc, inArray } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth";
 
 async function ensureSchema() {
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     .from(shops)
     .where(inArray(shops.id, selectedShopIds));
   const selectedOrders = await db.select().from(orders)
-    .where(inArray(orders.shopId, selectedShopIds))
+    .where(and(inArray(orders.shopId, selectedShopIds), inArray(orders.paymentStatus, ["paid", "legacy"])))
     .orderBy(desc(orders.createdAt));
   const loginRows = await db.select({ customerId: customerShopLogins.customerId, shopId: customerShopLogins.shopId })
     .from(customerShopLogins)

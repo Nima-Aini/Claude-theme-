@@ -8,7 +8,7 @@ type Product = { id: number; name: string; description: string | null; price: nu
 type Stand = { id: number; name: string; description: string | null; price: number; image: string | null; images?: string[] | null; stock: number; isActive: boolean; sortOrder: number };
 type Shop = { id: number; name: string; slug: string; secondarySlug?: string | null; image: string | null; bannerImage: string | null; bannerMobileImage?: string | null; phone?: string | null; commissionRate: number | null; totalEarnings: number | null; paidEarnings: number | null };
 type Discount = { id: number; code: string; type: "percentage" | "amount"; value: number; isActive: boolean | null; isPublic: boolean | null; createdAt: string | null };
-type Order = { id: number; customerId: number; shopId: number; customerName: string; customerPhone: string; customerAddress: string; shippingMethod: string; totalAmount: number; commissionAmount: number | null; status: string | null; trackingLink: string | null; items: any; createdAt: string | null };
+type Order = { id: number; customerId: number; shopId: number; customerName: string; customerPhone: string; customerAddress: string; shippingMethod: string; totalAmount: number; commissionAmount: number | null; status: string | null; paymentStatus: string; paymentRefId: string | null; trackingLink: string | null; items: any; createdAt: string | null };
 type CustomerReportOrder = { id: number; shopId: number; shopName: string; customerName: string; customerPhone: string; customerAddress: string; totalAmount: number; commissionAmount: number; status: string; trackingLink: string | null; shippingMethod: string; items: any; createdAt: string | null };
 type CustomerReportRow = { id: number; phone: string; name: string; address: string; shopIds: number[]; shops: string[]; orderCount: number; orders: CustomerReportOrder[] };
 
@@ -246,9 +246,10 @@ export default function AdminDashboard() {
   }, [orders, backupShopId, backupStatus, backupPreset, backupFromYear, backupFromMonth, backupFromDay, backupToYear, backupToMonth, backupToDay]);
 
   const backupStats = useMemo(() => {
-    const totalCount = filteredBackupOrders.length;
-    const totalAmount = filteredBackupOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
-    const totalCommission = filteredBackupOrders.reduce((sum, o) => sum + (o.commissionAmount || 0), 0);
+    const paidOrders = filteredBackupOrders.filter((o) => ["paid", "legacy"].includes(o.paymentStatus));
+    const totalCount = paidOrders.length;
+    const totalAmount = paidOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    const totalCommission = paidOrders.reduce((sum, o) => sum + (o.commissionAmount || 0), 0);
     return { totalCount, totalAmount, totalCommission };
   }, [filteredBackupOrders]);
 
@@ -318,9 +319,9 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
               <StatCard title="محصولات" value={String(products.length)} color={primary} />
               <StatCard title="فروشگاه‌ها" value={String(shops.length)} color="#1976D2" />
-              <StatCard title="سفارش‌ها" value={String(orders.length)} color="#4CAF50" />
+              <StatCard title="سفارش‌ها" value={String(orders.filter((o) => ["paid", "legacy"].includes(o.paymentStatus)).length)} color="#4CAF50" />
               <StatCard title="در انتظار" value={String(orders.filter((o) => o.status === "pending").length)} color="#FFA000" />
-              <StatCard title="کل فروش" value={formatPrice(orders.reduce((s, o) => s + o.totalAmount, 0))} color="#9C27B0" />
+              <StatCard title="کل فروش" value={formatPrice(orders.filter((o) => ["paid", "legacy"].includes(o.paymentStatus)).reduce((s, o) => s + o.totalAmount, 0))} color="#9C27B0" />
               <StatCard title="کل پورسانت" value={formatPrice(orders.reduce((s, o) => s + (o.commissionAmount || 0), 0))} color="#E91E63" />
             </div>
             <div className="bg-white rounded-2xl p-5">
@@ -530,7 +531,7 @@ export default function AdminDashboard() {
             )}
             <div className="space-y-2.5">
               {orders.map((o) => {
-                const statusMap: Record<string, { l: string; c: string }> = { pending: { l: "در انتظار", c: "#FFA000" }, processing: { l: "پردازش", c: "#1976D2" }, shipped: { l: "ارسال شده", c: "#4CAF50" }, delivered: { l: "تحویل شده", c: "#2E7D32" } };
+                const statusMap: Record<string, { l: string; c: string }> = { pending_payment: { l: "در انتظار پرداخت", c: "#FFA000" }, payment_failed: { l: "پرداخت ناموفق", c: "#E53935" }, payment_cancelled: { l: "پرداخت لغو شد", c: "#78909C" }, pending: { l: "در انتظار", c: "#FFA000" }, processing: { l: "پردازش", c: "#1976D2" }, shipped: { l: "ارسال شده", c: "#4CAF50" }, delivered: { l: "تحویل شده", c: "#2E7D32" } };
                 const st = statusMap[o.status || "pending"] || statusMap.pending;
                 const shop = shops.find((s) => s.id === o.shopId);
                 const items = o.items as any[];
@@ -541,7 +542,7 @@ export default function AdminDashboard() {
                         <span className="text-xs font-bold" style={{ color: secondary }}>#{o.id}</span>
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white" style={{ background: st.c }}>{st.l}</span>
                       </div>
-                      <button onClick={() => setEditOrder({ ...o })} className="text-gray-300 hover:text-gray-500 transition-colors">{SvgIcons.edit}</button>
+                      {["paid", "legacy"].includes(o.paymentStatus) && <button onClick={() => setEditOrder({ ...o })} className="text-gray-300 hover:text-gray-500 transition-colors">{SvgIcons.edit}</button>}
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-2">
                       <div><span className="text-gray-400">مشتری: </span><span className="font-bold">{o.customerName}</span></div>
@@ -550,6 +551,8 @@ export default function AdminDashboard() {
                       <div><span className="text-gray-400">ارسال: </span><span className="font-bold">{o.shippingMethod === "post" ? "پست" : "تیپاکس"}</span></div>
                       <div><span className="text-gray-400">کدپستی: </span><span className="font-bold" dir="ltr">{(o as any).customerPostalCode || "-"}</span></div>
                       <div><span className="text-gray-400">تاریخ ثبت: </span><span className="font-bold">{formatJalaliDate(o.createdAt, true)}</span></div>
+                      <div><span className="text-gray-400">وضعیت پرداخت: </span><span className="font-bold">{o.paymentStatus === "paid" ? "پرداخت‌شده" : o.paymentStatus === "pending" ? "در انتظار پرداخت" : o.paymentStatus === "legacy" ? "سفارش قدیمی" : "ناموفق/لغوشده"}</span></div>
+                      {o.paymentRefId && <div><span className="text-gray-400">کد پیگیری زرین‌پال: </span><span className="font-bold" dir="ltr">{o.paymentRefId}</span></div>}
                     </div>
                     <p className="text-xs text-gray-400 mb-2"><span>آدرس: </span>{o.customerAddress}</p>
                     <div className="flex flex-wrap gap-1 mb-3">

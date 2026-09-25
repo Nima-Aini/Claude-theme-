@@ -58,7 +58,7 @@ export default async function StorePage({ params, searchParams }: PageProps) {
         images: Array.isArray(p.images) ? p.images : [],
         videoUrl: p.videoUrl,
         isBestseller: p.isBestseller ?? false,
-        stock: p.stock ?? 0,
+        stock: Math.max(0, (p.stock ?? 0) - p.reservedStock),
       }))}
       bestsellers={bestsellers.map((p) => ({
         id: p.id,
@@ -69,7 +69,7 @@ export default async function StorePage({ params, searchParams }: PageProps) {
         images: Array.isArray(p.images) ? p.images : [],
         videoUrl: p.videoUrl,
         isBestseller: p.isBestseller ?? false,
-        stock: p.stock ?? 0,
+        stock: Math.max(0, (p.stock ?? 0) - p.reservedStock),
       }))}
       stands={allStands.map((stand) => ({
         id: stand.id,
@@ -77,7 +77,7 @@ export default async function StorePage({ params, searchParams }: PageProps) {
         description: stand.description,
         price: stand.price,
         image: stand.image,
-        stock: stand.stock,
+        stock: Math.max(0, stand.stock - stand.reservedStock),
         itemType: "stand" as const,
       }))}
       sliderBanners={sliders.map((s) => ({ id: s.id, image: s.image, mobileImage: s.mobileImage }))}

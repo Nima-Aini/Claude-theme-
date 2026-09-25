@@ -1,0 +1,13 @@
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) NOT NULL DEFAULT 'legacy';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(30) NOT NULL DEFAULT 'legacy';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_authority VARCHAR(100);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_ref_id VARCHAR(100);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS commission_quote_amount INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_expires_at TIMESTAMP;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS reservation_active BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS reserved_stock INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE stands ADD COLUMN IF NOT EXISTS reserved_stock INTEGER NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX IF NOT EXISTS orders_payment_authority_unique ON orders(payment_authority) WHERE payment_authority IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS orders_payment_ref_id_unique ON orders(payment_ref_id) WHERE payment_ref_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS orders_pending_payment_expiry_idx ON orders(payment_expires_at) WHERE reservation_active = true;

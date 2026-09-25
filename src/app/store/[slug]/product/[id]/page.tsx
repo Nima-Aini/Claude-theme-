@@ -56,13 +56,13 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
   const normalizedProduct = {
     ...product,
     isBestseller: Boolean(product.isBestseller),
-    stock: product.stock ?? 100,
+    stock: Math.max(0, (product.stock ?? 0) - product.reservedStock),
   };
 
   const normalizedBestsellers = (bestsellers.length > 0 ? bestsellers : allProducts.filter((p) => p.id !== product.id).slice(0, 6)).map((p) => ({
     ...p,
     isBestseller: Boolean(p.isBestseller),
-    stock: p.stock ?? 100,
+    stock: Math.max(0, (p.stock ?? 0) - p.reservedStock),
   }));
 
   return (
@@ -70,7 +70,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
       shop={shop}
       product={normalizedProduct}
       bestsellers={normalizedBestsellers}
-      allProducts={allProducts.map(p => ({ ...p, isBestseller: Boolean(p.isBestseller), stock: p.stock ?? 100 }))}
+      allProducts={allProducts.map(p => ({ ...p, isBestseller: Boolean(p.isBestseller), stock: Math.max(0, (p.stock ?? 0) - p.reservedStock) }))}
       settings={settings}
       sliderBanners={sliders}
       bottomBanners={bottoms}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, pool } from "@/db";
 import { products } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth";
 
 async function ensureSchema() {
@@ -56,8 +56,8 @@ export async function PUT(req: NextRequest) {
     if (body.videoUrl !== undefined) data.videoUrl = body.videoUrl || null;
     if (body.isBestseller !== undefined) data.isBestseller = Boolean(body.isBestseller);
     if (body.stock !== undefined) data.stock = Number(body.stock);
-    const result = await db.update(products).set(data).where(eq(products.id, id)).returning();
-    if (!result[0]) return NextResponse.json({ error: "محصول پیدا نشد" }, { status: 404 });
+    const result = await db.update(products).set(data).where(and(eq(products.id, id), body.stock === undefined ? undefined : sql`${products.reservedStock} <= ${data.stock}`)).returning();
+    if (!result[0]) return NextResponse.json({ error: "موجودی جدید از تعداد رزروشده کمتر است" }, { status: 409 });
     return NextResponse.json(result[0]);
   } catch (error: any) {
     console.error("PUT /api/products", error);
@@ -69,6 +69,6 @@ export async function DELETE(req: NextRequest) {
   if (!await requireAdmin(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await req.json();
-  await db.delete(products).where(eq(products.id, id));
-  return NextResponse.json({ success: true });
+  const deleted = await db.delete(products).where(and(eq(products.id, Number(id)), eq(products.reservedStock, 0))).returning({ id: products.id });
+  return deleted[0] ? NextResponse.json({ success: true }) : NextResponse.json({ error: "کالای رزروشده قابل حذف نیست" }, { status: 409 });
 }
