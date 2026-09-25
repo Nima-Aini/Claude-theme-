@@ -1,70 +1,117 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-process.env.SMS_USERNAME = "test-user";
-process.env.SMS_PASSWORD = "test-password";
-process.env.SMS_OTP_BODY_ID = "12345";
+process.env.MELIPAYAMAK_TOKEN = "test-token";
+process.env.SMS_OTP_BODY_ID = "510394";
+process.env.SMS_ORDER_CUSTOMER_BODY_ID = "1001";
+process.env.SMS_ORDER_SHOP_BODY_ID = "1002";
+process.env.SMS_PAYOUT_BODY_ID = "1003";
 process.env.SMS_FROM = "500000000000";
 
 const sms = await import(`../src/lib/sms.ts?test=${Date.now()}`);
+const sharedUrl = "https://console.melipayamak.com/api/send/shared/test-token";
+const simpleUrl = "https://console.melipayamak.com/api/send/simple/test-token";
+const success = () => Response.json({ recId: 4964357668335355040, status: "عملیات موفق" });
 
-test("sendOTP posts BaseServiceNumber as form-urlencoded with official fields", async (t) => {
+test("OTP sends JSON to shared Token API with numeric bodyId and ordered args", async (t) => {
   const requests = [];
   t.mock.method(globalThis, "fetch", async (url, init) => {
     requests.push({ url: String(url), init });
-    return new Response(JSON.stringify({ Value: "987654", RetStatus: 1, StrRetStatus: "Ok" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return success();
   });
-
   assert.equal(await sms.sendOTP("+98 912 345 6789", "246810"), true);
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, "https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber");
+  assert.equal(requests[0].url, sharedUrl);
   assert.equal(requests[0].init.method, "POST");
-  assert.equal(requests[0].init.headers["Content-Type"], "application/x-www-form-urlencoded; charset=UTF-8");
-
-  const form = new URLSearchParams(requests[0].init.body);
-  assert.deepEqual(Object.fromEntries(form), {
-    username: "test-user",
-    password: "test-password",
-    to: "09123456789",
-    bodyId: "12345",
-    text: "246810",
+  assert.equal(requests[0].init.headers["Content-Type"], "application/json");
+  assert.deepEqual(JSON.parse(requests[0].init.body), {
+    to: "09123456789", bodyId: 510394, args: ["246810"],
   });
-  assert.doesNotMatch(requests[0].init.body, /^\s*\{/);
 });
 
-test("sendOTP returns false without calling a guessed fallback endpoint", async (t) => {
-  const urls = [];
+test("order and payout patterns retain argument order on shared API", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body) });
+    return success();
+  });
+  await sms.sendOrderSMS({
+    customerPhone: "09123456789", shopPhone: "09122222222", orderId: 42,
+    amount: 125000, commission: 12500, totalCommission: 50000,
+    trackingLink: "https://shop.example.test/track/42",
+  });
+  assert.equal(await sms.sendPayoutSMS("09121111111", 15000, 90000), true);
+  assert.deepEqual(requests.map((request) => request.url), [sharedUrl, sharedUrl, sharedUrl]);
+  assert.deepEqual(requests[0].body, {
+    to: "09123456789", bodyId: 1001,
+    args: ["42", "۱۲۵٬۰۰۰", "https://shop.example.test/track/42"],
+  });
+  assert.deepEqual(requests[1].body, {
+    to: "09122222222", bodyId: 1002, args: ["42", "۱۲٬۵۰۰", "۵۰٬۰۰۰"],
+  });
+  assert.deepEqual(requests[2].body, {
+    to: "09121111111", bodyId: 1003, args: ["۱۵٬۰۰۰", "۹۰٬۰۰۰"],
+  });
+});
+
+test("missing token returns false without a request", async (t) => {
+  const previous = process.env.MELIPAYAMAK_TOKEN;
+  delete process.env.MELIPAYAMAK_TOKEN;
+  t.after(() => { process.env.MELIPAYAMAK_TOKEN = previous; });
+  const errors = [];
+  t.mock.method(console, "error", (...args) => errors.push(args));
+  t.mock.method(globalThis, "fetch", () => { throw new Error("fetch must not run"); });
+  assert.equal(await sms.sendOTP("09123456789", "123456"), false);
+  assert.deepEqual(errors, [["MelliPayamak: MELIPAYAMAK_TOKEN is not configured"]]);
+});
+
+test("invalid phone and invalid body ID return false before fetch", async (t) => {
   t.mock.method(console, "error", () => undefined);
-  t.mock.method(globalThis, "fetch", async (url) => {
-    urls.push(String(url));
-    return new Response(JSON.stringify({ Value: "0", RetStatus: 35, StrRetStatus: "InvalidData" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  });
-
-  assert.equal(await sms.sendOTP("09123456789", "135790"), false);
-  assert.deepEqual(urls, ["https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber"]);
+  t.mock.method(globalThis, "fetch", () => { throw new Error("fetch must not run"); });
+  assert.equal(await sms.sendOTP("02112345678", "123456"), false);
+  const previous = process.env.SMS_OTP_BODY_ID;
+  process.env.SMS_OTP_BODY_ID = "12x";
+  t.after(() => { process.env.SMS_OTP_BODY_ID = previous; });
+  assert.equal(await sms.sendOTP("09123456789", "123456"), false);
+  process.env.SMS_OTP_BODY_ID = "0";
+  assert.equal(await sms.sendOTP("09123456789", "123456"), false);
 });
 
-test("sendSMS uses the official SendSMS form endpoint", async (t) => {
+test("failed shared response and HTTP failure do not count as sent or leak secrets", async (t) => {
+  const errors = [];
+  let count = 0;
+  t.mock.method(console, "error", (...args) => errors.push(args));
+  t.mock.method(globalThis, "fetch", async () => {
+    count++;
+    return count === 1
+      ? Response.json({ recId: 0, status: "ارسال ناموفق برای 09123456789" })
+      : Response.json({ recId: 123, status: "عملیات موفق" }, { status: 500 });
+  });
+  assert.equal(await sms.sendOTP("09123456789", "123456"), false);
+  assert.equal(await sms.sendOTP("09123456789", "123456"), false);
+  assert.equal(errors.length, 2);
+  assert.deepEqual(Object.keys(errors[0][1]), ["operation", "httpStatus", "status"]);
+  assert.equal(errors[0][1].status.includes("09123456789"), false);
+  assert.equal(JSON.stringify(errors).includes("test-token"), false);
+});
+
+test("plain SMS uses simple Token API; missing sender returns false", async (t) => {
   let request;
   t.mock.method(globalThis, "fetch", async (url, init) => {
     request = { url: String(url), init };
-    return new Response(JSON.stringify({ Value: "123", RetStatus: 1 }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return success();
   });
-
-  assert.equal(await sms.sendSMS("09123456789", "پیام آزمایشی"), true);
-  assert.equal(request.url, "https://rest.payamak-panel.com/api/SendSMS/SendSMS");
-  const form = new URLSearchParams(request.init.body);
-  assert.equal(form.get("from"), "500000000000");
-  assert.equal(form.get("to"), "09123456789");
-  assert.equal(form.get("text"), "پیام آزمایشی");
-  assert.equal(form.get("isFlash"), "false");
+  assert.equal(await sms.sendSMS("۹۱۲۳۴۵۶۷۸۹", "پیام آزمایشی"), true);
+  assert.equal(request.url, simpleUrl);
+  assert.equal(request.init.headers["Content-Type"], "application/json");
+  assert.deepEqual(JSON.parse(request.init.body), {
+    from: "500000000000", to: "09123456789", text: "پیام آزمایشی",
+  });
+  const previous = process.env.SMS_FROM;
+  delete process.env.SMS_FROM;
+  t.after(() => { process.env.SMS_FROM = previous; });
+  t.mock.method(console, "error", () => undefined);
+  request = null;
+  assert.equal(await sms.sendSMS("09123456789", "پیام آزمایشی"), false);
+  assert.equal(request, null);
 });

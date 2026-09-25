@@ -1,10 +1,9 @@
-// Melli Payamak REST service. Credentials and pattern IDs must only come from env.
-const SMS_API = "https://rest.payamak-panel.com/api/SendSMS";
+// Console Token API. This module is imported only by server routes.
+const SMS_API = "https://console.melipayamak.com/api/send";
 
 type SmsResponse = {
-  Value?: string | number;
-  RetStatus?: number;
-  StrRetStatus?: string;
+  recId?: string | number;
+  status?: string;
 };
 
 function normalizePhone(phone: string | null | undefined): string | null {
@@ -22,55 +21,63 @@ function normalizePhone(phone: string | null | undefined): string | null {
   return normalized;
 }
 
-function credentials() {
-  const username = process.env.SMS_USERNAME?.trim();
-  const password = process.env.SMS_PASSWORD?.trim();
-  if (!username || !password) {
-    console.error("MelliPayamak: SMS_USERNAME or SMS_PASSWORD is not configured");
+function token() {
+  const value = process.env.MELIPAYAMAK_TOKEN?.trim();
+  if (!value) {
+    console.error("MelliPayamak: MELIPAYAMAK_TOKEN is not configured");
     return null;
   }
-  return { username, password };
+  return value;
 }
 
 function numericBodyId(value: string | undefined, envName: string) {
   const bodyId = value?.trim();
-  if (!bodyId || !/^\d+$/.test(bodyId)) {
+  const numeric = Number(bodyId);
+  if (!bodyId || !/^\d+$/.test(bodyId) || !Number.isSafeInteger(numeric) || numeric <= 0) {
     console.error(`MelliPayamak: ${envName} is not configured with a numeric pattern ID`);
     return null;
   }
-  return bodyId;
+  return numeric;
 }
 
 function succeeded(data: SmsResponse | null) {
-  return data?.RetStatus === 1 || Number(data?.Value) > 0;
+  const recId = data?.recId;
+  const validRecId = typeof recId === "number"
+    ? Number.isFinite(recId) && Number.isInteger(recId) && recId > 0
+    : typeof recId === "string" && /^\d+$/.test(recId) && /[1-9]/.test(recId);
+  const status = data?.status?.trim();
+  return validRecId && (status === "عملیات موفق" || /^(success|successful)$/i.test(status || ""));
 }
 
-async function postForm(method: "BaseServiceNumber" | "SendSMS", fields: Record<string, string>, operation: string) {
-  const auth = credentials();
-  if (!auth) return false;
-
-  const body = new URLSearchParams({ username: auth.username, password: auth.password, ...fields });
+async function postJson(method: "shared" | "simple", body: object, operation: string) {
+  const authToken = token();
+  if (!authToken) return false;
   try {
-    const response = await fetch(`${SMS_API}/${method}`, {
+    const response = await fetch(`${SMS_API}/${method}/${encodeURIComponent(authToken)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
-      body: body.toString(),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
     });
     const data = await response.json().catch(() => null) as SmsResponse | null;
     const ok = response.ok && succeeded(data);
     if (!ok) {
+      const safeStatus = typeof data?.status === "string"
+        ? data.status.replaceAll(authToken, "[redacted]").replace(/09\d{9}/g, "[redacted]").slice(0, 120)
+        : null;
       console.error("MelliPayamak request failed", {
         operation,
         httpStatus: response.status,
-        retStatus: data?.RetStatus,
-        status: data?.StrRetStatus,
+        status: safeStatus,
       });
     }
     return ok;
-  } catch (error) {
+  } catch {
     console.error("MelliPayamak network error", {
       operation,
-      message: error instanceof Error ? error.message : "unknown network error",
+      httpStatus: null,
+      status: "network_error",
     });
     return false;
   }
@@ -86,12 +93,10 @@ async function sendPatternSMS(
   const bodyId = numericBodyId(bodyIdValue, bodyIdEnvName);
   if (!to || !bodyId || values.length === 0) return false;
 
-  // The official REST SDK accepts one text string. Pattern values are ordered
-  // and separated with semicolons before standard form-url encoding.
-  return postForm("BaseServiceNumber", {
+  return postJson("shared", {
     to,
     bodyId,
-    text: values.map(String).join(";"),
+    args: values.map(String),
   }, bodyIdEnvName);
 }
 
@@ -112,7 +117,7 @@ export async function sendSMS(phone: string, text: string): Promise<boolean> {
     console.error("MelliPayamak: SMS_FROM is not configured");
     return false;
   }
-  return postForm("SendSMS", { to, from, text, isFlash: "false" }, "plain SMS");
+  return postJson("simple", { from, to, text }, "plain SMS");
 }
 
 export async function sendOrderSMS(args: {
